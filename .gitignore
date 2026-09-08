@@ -1,3 +1,4 @@
 .env
 bin/
+/api
 coverage.out
