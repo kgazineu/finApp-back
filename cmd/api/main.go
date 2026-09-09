@@ -1,25 +1,23 @@
 package main
 
 import (
-	"net/http"
+	"github.com/kgazineu/finApp-back/internal/api"
 
 	"github.com/gin-gonic/gin"
 )
 
-func newRouter() *gin.Engine {
+func newRouter(server api.ServerInterface) *gin.Engine {
 	router := gin.Default()
 
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ok",
-		})
-	})
+	api.RegisterHandlers(router, server)
+	api.RegisterDocumentation(router)
 
 	return router
 }
 
 func main() {
-	router := newRouter()
+	server := api.NewServer()
+	router := newRouter(server)
 
 	if err := router.Run(":8080"); err != nil {
 		panic(err)
