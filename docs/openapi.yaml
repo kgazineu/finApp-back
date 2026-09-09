@@ -1,0 +1,40 @@
+openapi: 3.0.3
+
+info:
+  title: FinApp API
+  description: API para gerenciamento financeiro
+  version: 0.1.0
+
+servers:
+  - url: http://localhost:8080
+    description: Ambiente local
+
+tags:
+  - name: Health
+    description: Verificação da saúde da aplicação
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Verifica a saúde da aplicação
+      tags:
+        - Health
+      responses:
+        "200":
+          description: Aplicação disponível
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: ok
