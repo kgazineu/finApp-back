@@ -93,4 +93,4 @@ jobs:
           docker compose up -d --wait --wait-timeout 120 app
           docker compose ps
           curl --fail --silent --show-error \
-            http://127.0.0.1:8081/health
+            http://127.0.0.1:8080/health
