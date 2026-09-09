@@ -1,0 +1,96 @@
+name: Backend
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: finapp-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v7
+
+      - name: Configurar Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Verificar formatação
+        run: test -z "$(gofmt -l .)"
+
+      - name: Análise estática
+        run: go vet ./...
+
+      - name: Executar testes
+        run: go test -coverprofile=coverage.out ./...
+
+      - name: Compilar aplicação
+        run: go build -o bin/finapp-api ./cmd/api
+
+  publish:
+    name: Publicar imagem
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs:
+      - test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v7
+
+      - name: Entrar no GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir e publicar imagem
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/kgazineu/finapp-back:${{ github.sha }}
+            ghcr.io/kgazineu/finapp-back:latest
+
+  deploy:
+    name: Deploy no homelab
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs:
+      - publish
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
+    timeout-minutes: 10
+
+    steps:
+      - name: Atualizar API
+        run: |
+          cd /opt/finapp-back
+          docker compose pull app
+          docker compose up -d --wait --wait-timeout 120 app
+          docker compose ps
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8080/health
