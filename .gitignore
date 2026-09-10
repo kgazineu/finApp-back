@@ -1,3 +1,5 @@
 .env
 bin/
 coverage.out
+tmp/
+/api
