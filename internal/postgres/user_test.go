@@ -2,62 +2,17 @@ package postgres_test
 
 import (
 	"context"
-	"os"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/kgazineu/finApp-back/internal/postgres"
 	"github.com/kgazineu/finApp-back/internal/user"
-	pgdriver "gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 func TestUserRepositoryCreate(t *testing.T) {
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("defina TEST_DATABASE_URL para executar a integração")
-	}
-
-	db, err := gorm.Open(pgdriver.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
-	if err != nil {
-		t.Fatalf("erro ao conectar ao banco de testes: %v", err)
-	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("erro ao acessar o pool de conexões: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Errorf("erro ao fechar conexões: %v", err)
-		}
-	})
-
-	tx := db.Begin()
-	if tx.Error != nil {
-		t.Fatalf("erro ao iniciar transação: %v", tx.Error)
-	}
-	t.Cleanup(func() {
-		if err := tx.Rollback().Error; err != nil {
-			t.Errorf("erro ao desfazer transação: %v", err)
-		}
-	})
-
-	migration, err := os.ReadFile(
-		"../../migrations/000001_create_users.up.sql",
-	)
-	if err != nil {
-		t.Fatalf("erro ao ler migration: %v", err)
-	}
-
-	if err := tx.Exec(string(migration)).Error; err != nil {
-		t.Fatalf("erro ao aplicar migration: %v", err)
-	}
-
+	tx := newTestDB(t)
 	repo := postgres.NewUserRepository(tx)
 
 	now := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
@@ -107,5 +62,58 @@ func TestUserRepositoryCreate(t *testing.T) {
 	if !stored.CreatedAt.Equal(input.CreatedAt) ||
 		!stored.UpdatedAt.Equal(input.UpdatedAt) {
 		t.Error("as datas persistidas diferem das datas enviadas")
+	}
+}
+
+func TestUserRepositoryCreateRejectsDuplicateEmail(t *testing.T) {
+	tx := newTestDB(t)
+	repo := postgres.NewUserRepository(tx)
+	ctx := context.Background()
+
+	now := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	first := user.User{
+		ID:           uuid.New(),
+		Name:         "Kaian",
+		Email:        "kaian@example.com",
+		PasswordHash: "hash-ficticio-para-teste",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	if _, err := repo.Create(ctx, first); err != nil {
+		t.Fatalf("erro ao persistir primeiro usuário: %v", err)
+	}
+
+	second := first
+	second.ID = uuid.New()
+	second.Name = "Outro usuário"
+
+	_, err := repo.Create(ctx, second)
+
+	if !errors.Is(err, user.ErrEmailAlreadyExists) {
+		t.Errorf(
+			"esperado ErrEmailAlreadyExists, recebido: %v",
+			err,
+		)
+	}
+}
+
+func TestDuplicateIDIsNotReportedAsDuplicateEmail(t *testing.T) {
+	tx := newTestDB(t)
+	repo := postgres.NewUserRepository(tx)
+	u, err := user.New("Kaian", "first@example.com", "hash-de-teste")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Create(context.Background(), u); err != nil {
+		t.Fatal(err)
+	}
+	u.Email = "second@example.com"
+	_, err = repo.Create(context.Background(), u)
+	if err == nil {
+		t.Fatal("esperado conflito da chave primária")
+	}
+	if errors.Is(err, user.ErrEmailAlreadyExists) {
+		t.Fatal("conflito de ID traduzido como e-mail duplicado")
 	}
 }

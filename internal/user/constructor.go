@@ -2,7 +2,6 @@ package user
 
 import (
 	"errors"
-	"net/mail"
 	"strings"
 	"time"
 
@@ -16,17 +15,8 @@ var (
 )
 
 func New(name, email, passwordHash string) (User, error) {
-	if strings.TrimSpace(name) == "" {
-		return User{}, ErrInvalidName
-	}
-
-	address, err := mail.ParseAddress(email)
-	if err != nil {
-		return User{}, ErrInvalidEmail
-	}
-
-	if address.Address != email {
-		return User{}, ErrInvalidEmail
+	if err := validateProfile(name, email); err != nil {
+		return User{}, err
 	}
 
 	if strings.TrimSpace(passwordHash) == "" {
@@ -34,6 +24,9 @@ func New(name, email, passwordHash string) (User, error) {
 	}
 
 	id, err := uuid.NewRandom()
+	if err != nil {
+		return User{}, err
+	}
 
 	now := time.Now().UTC()
 

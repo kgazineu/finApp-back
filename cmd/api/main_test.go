@@ -15,7 +15,7 @@ import (
 func TestHealthCheck(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	router := newRouter(api.NewServer())
+	router := newRouter(api.NewServer(nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	response := httptest.NewRecorder()
@@ -45,7 +45,7 @@ func TestHealthCheck(t *testing.T) {
 
 func TestOpenAPISpec(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := newRouter(api.NewServer())
+	router := newRouter(api.NewServer(nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
 	response := httptest.NewRecorder()
@@ -79,7 +79,7 @@ func TestOpenAPISpec(t *testing.T) {
 
 func TestSwaggerDocs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := newRouter(api.NewServer())
+	router := newRouter(api.NewServer(nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/docs/", nil)
 	response := httptest.NewRecorder()

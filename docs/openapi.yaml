@@ -12,6 +12,8 @@ servers:
 tags:
   - name: Health
     description: Verificação da saúde da aplicação
+  - name: Users
+    description: Cadastro de usuários
 
 paths:
   /health:
@@ -28,6 +30,56 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
 
+  /users:
+    post:
+      operationId: createUser
+      summary: Cadastra um usuário
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: Usuário criado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          description: Dados de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: E-mail já cadastrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Corpo da requisição excede 64 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Content-Type deve ser application/json
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Falha interna
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthResponse:
@@ -38,3 +90,62 @@ components:
         status:
           type: string
           example: ok
+
+    CreateUserRequest:
+      type: object
+      required:
+        - name
+        - email
+        - password
+      properties:
+        name:
+          type: string
+          minLength: 1
+          example: Kaian
+        email:
+          type: string
+          format: email
+          example: kaian@example.com
+        password:
+          type: string
+          format: password
+          minLength: 15
+          maxLength: 128
+          description: De 15 a 128 caracteres Unicode, preservando espaços e sem regras de composição.
+          writeOnly: true
+
+    UserResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - email
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Kaian
+        email:
+          type: string
+          format: email
+          example: kaian@example.com
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: Dados de entrada inválidos
