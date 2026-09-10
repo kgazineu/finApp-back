@@ -20,6 +20,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: finapp
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: finapp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U finapp -d finapp_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://finapp:test-password@localhost:5432/finapp_test?sslmode=disable
+      GIN_MODE: test
+
     steps:
       - name: Baixar código
         uses: actions/checkout@v7
@@ -36,8 +55,13 @@ jobs:
       - name: Análise estática
         run: go vet ./...
 
+      - name: Verificar código gerado do OpenAPI
+        run: |
+          go generate ./internal/api
+          git diff --exit-code -- internal/api/openapi.gen.go
+
       - name: Executar testes
-        run: go test -coverprofile=coverage.out ./...
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
 
       - name: Compilar aplicação
         run: go build -o bin/finapp-api ./cmd/api

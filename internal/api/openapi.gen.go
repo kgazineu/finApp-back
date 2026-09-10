@@ -11,10 +11,30 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gin-gonic/gin"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// CreateUserRequest defines model for CreateUserRequest.
+type CreateUserRequest struct {
+	// Email Example: kaian@example.com
+	Email openapi_types.Email `json:"email"`
+
+	// Name Example: Kaian
+	Name string `json:"name"`
+
+	// Password De 15 a 128 caracteres Unicode, preservando espaços e sem regras de composição.
+	Password *string `json:"password,omitempty"`
+}
+
+// ErrorResponse defines model for ErrorResponse.
+type ErrorResponse struct {
+	// Message Example: Dados de entrada inválidos
+	Message string `json:"message"`
+}
 
 // HealthResponse defines model for HealthResponse.
 type HealthResponse struct {
@@ -22,11 +42,30 @@ type HealthResponse struct {
 	Status string `json:"status"`
 }
 
+// UserResponse defines model for UserResponse.
+type UserResponse struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Email Example: kaian@example.com
+	Email openapi_types.Email `json:"email"`
+	Id    openapi_types.UUID  `json:"id"`
+
+	// Name Example: Kaian
+	Name      string    `json:"name"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
+type CreateUserJSONRequestBody = CreateUserRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetHealth Verifica a saúde da aplicação
 	// (GET /health)
 	GetHealth(c *gin.Context)
+	// CreateUser Cadastra um usuário
+	// (POST /users)
+	CreateUser(c *gin.Context)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -49,6 +88,19 @@ func (siw *ServerInterfaceWrapper) GetHealth(c *gin.Context) {
 	}
 
 	siw.Handler.GetHealth(c)
+}
+
+// CreateUser operation middleware
+func (siw *ServerInterfaceWrapper) CreateUser(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateUser(c)
 }
 
 // GinServerOptions provides options for the Gin server.
@@ -79,6 +131,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	}
 
 	router.GET(options.BaseURL+"/health", wrapper.GetHealth)
+	router.POST(options.BaseURL+"/users", wrapper.CreateUser)
 }
 
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
@@ -86,13 +139,21 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"dJGxbhsxEER/hZikPOgucWOwU5NEnZEijaFizVvp6NyRDLkyYhj3NSlS5QfS6seCpU4WoMAVF8TOcObx",
-	"BS5OKQYOUmBfUNzAE9XxC9Mow1cuKYbCepNyTJzF82lVSA514p80pZFhEb+jgTwnnYtkH/aY5waZfxx8",
-	"5h72/izbvu7Fh0d2glkXfdhFdey5uOyT+Bhgsb7bmESZzJ4zB+dp4iDR7Hyg4NjnqI96qQk++bBOyazv",
-	"NmjwxLmcLLrVh1WHuUFMHCh5WNysutUNGiSSodZoh9pYxz2LHlqXNMSmh8VnlhMTaKMTlir82HV6uBiE",
-	"QxVSSqN3Vdo+Fk1wRqvT+8w7WLxrL+zbBXx7Rb1SuaJRrY+/j7+i6b3uHf888VhBl8M0UX6GxTfOfucd",
-	"GTKFjn97Nj0ZukgVGe2L/shSalvfKpyVGuz9f78wPXgOwmaMjkY0OOQRFoNIsm1bL4dYxN52tx3m7av/",
-	"tc852dLg7XyBJv3RJd68nf8FAAD//w==",
+	"vFZPb9vGE/0qi/n9jrT+2HHh8lTHSVojBWoEdS+BDhPuSFqH3N3MLBULAT+M0UNO/QK96osVu6Qki1Ra",
+	"BDB8o4SdmTfvvX3kFyhc5Z0lGwTyLyDFkipMj1dMGOhWiN/Rp5okxD89O08cDKUjVKEp08M9Vr4kyOEj",
+	"GrQ/db9Hhasgg7njCgPk3fkMwtrHsxLY2AU0GVis6LDP29gHMqiM/ZXsIiwhnx4p9Cjy2bGOxZqkYOOD",
+	"cRZyeEVqeq5QTU8vVIGMRSAmUbfWFE5TpjyTEK/QaqdIPG6+OlGkhCrFtGAUpUklcsRsvm7+dKPHm+zm",
+	"ZlDh/Q7h6cUh4vM+5Aw+swn0my3XkAeuqWkyYPpUGyYN+fuWiWzH1G7ObNfJfbijIsTlXzM7fkfinRUa",
+	"qlORCC56vL5C7dJqZAOjRmXsavNQGu1kKEwP27bhMSy/EJZh+W0wEjDUcojFffzPkV3ZsYmtM/fzUGsT",
+	"tcfy5tHkOZZCWQ9MkaytL5Old5pqDHQSTOJ/YLQns7rRB0Pr2ujvuxGDo7XX37dNj+MEoOe7PUOP+w9l",
+	"iL2Mnbvh/bu8uVYeGdWCmGxhsCIbnJobi7Ygwy7iMiGt9sbYS+/V5c01ZLAilrbFZDQdTeKGzpNFbyCH",
+	"s9FkdJbuRVgmKcfLZLz4uKDEQBQaI4hrDTn8TKG1JsSlW7ekwtPJJFnB2UA2FaL3pSlS6fhOIoJtHsan",
+	"/zPNIYf/jfeBOe7Sctwzf2Klx0ZqnXJEaRPPbf5aUZm0kLqqkNeQwx/EZm4KVKgEN39rUhoV7ksjZbiQ",
+	"KFq31Cw2GNdCnJbyTo5wsE9yaJUnCS+dXj/Z/sNXRXNospR0AwGmTwbgIAuO0H8r9eaBjVMFG9QueurF",
+	"E+p/GMRH5v9b6iYsPz4fltcn8Y6ru82DKlCjREAtI9Oz50Nx5di7aO9kku4Vq+i+IE3qhxfqrXnZYjp/",
+	"Tkxpysnva09K0yp+DbAaDGwyOH9O87zBchkdE4gt9hLjqlNQ1ZWqO5M/SonbFAyz1DR+7aSYeD+I6uqD",
+	"IRtIla7AmP41l5DDMgSfj8fpz6WTkF9MLibQzHbt+3228dXF3LdDrH25bTOsyfqNuq1cvDHbrWRf127V",
+	"zJp/AgAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -6,12 +6,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type Server struct{}
+type Server struct {
+	users UserCreator
+}
 
 var _ ServerInterface = (*Server)(nil)
 
-func NewServer() *Server {
-	return &Server{}
+func NewServer(users UserCreator) *Server {
+	return &Server{
+		users: users,
+	}
 }
 
 func (s *Server) GetHealth(c *gin.Context) {
