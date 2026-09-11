@@ -82,6 +82,10 @@ type repositoryStub struct {
 	err      error
 }
 
+func (r *repositoryStub) List(context.Context, user.ListInput) ([]user.User, error) {
+	panic("List não deveria ser chamado nos testes de criação")
+}
+
 func (r *repositoryStub) Create(
 	ctx context.Context,
 	u user.User,

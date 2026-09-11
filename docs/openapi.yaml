@@ -13,7 +13,7 @@ tags:
   - name: Health
     description: Verificação da saúde da aplicação
   - name: Users
-    description: Cadastro de usuários
+    description: Cadastro e consulta de usuários
 
 paths:
   /health:
@@ -31,6 +31,50 @@ paths:
                 $ref: "#/components/schemas/HealthResponse"
 
   /users:
+    get:
+      operationId: listUsers
+      summary: Lista usuários com paginação
+      description: >-
+        Retorna usuários em ordem crescente de createdAt, com desempate por id.
+        Uma página sem resultados retorna data como lista vazia, com status 200.
+        Senhas e hashes nunca são incluídos na resposta.
+      tags:
+        - Users
+      parameters:
+        - name: limit
+          in: query
+          description: Quantidade máxima de usuários na página.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          description: Quantidade de usuários a pular antes de iniciar a página.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Página de usuários
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListUsersResponse"
+        "400":
+          description: Parâmetros de paginação inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Falha interna
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     post:
       operationId: createUser
       summary: Cadastra um usuário
@@ -82,6 +126,27 @@ paths:
 
 components:
   schemas:
+    ListUsersResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+        - limit
+        - offset
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/UserResponse"
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        offset:
+          type: integer
+          minimum: 0
+
     HealthResponse:
       type: object
       required:
