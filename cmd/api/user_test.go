@@ -24,6 +24,10 @@ type userCreatorStub struct {
 	err      error
 }
 
+func (s *userCreatorStub) List(context.Context, user.ListInput) ([]user.User, error) {
+	panic("List não deveria ser chamado nos testes de criação")
+}
+
 func (s *userCreatorStub) Create(
 	ctx context.Context,
 	input user.CreateInput,

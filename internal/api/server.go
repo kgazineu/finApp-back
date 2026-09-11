@@ -7,12 +7,12 @@ import (
 )
 
 type Server struct {
-	users UserCreator
+	users UserService
 }
 
 var _ ServerInterface = (*Server)(nil)
 
-func NewServer(users UserCreator) *Server {
+func NewServer(users UserService) *Server {
 	return &Server{
 		users: users,
 	}
