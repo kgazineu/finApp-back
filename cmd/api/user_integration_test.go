@@ -22,7 +22,7 @@ func TestUserRegistrationEndToEnd(t *testing.T) {
 	server := httptest.NewServer(newRouter(api.NewServer(service)))
 	t.Cleanup(server.Close)
 	client := &http.Client{Timeout: 15 * time.Second}
-	payload := `{"name":"Kaian","email":"kaian@example.com","password":"uma-senha-de-teste-123!"}`
+	payload := `{"name":"Kaian","email":"kaian@example.com","password":"Uma-senha-de-teste-123!"}`
 	response, err := client.Post(server.URL+"/users", "application/json", strings.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
@@ -47,10 +47,10 @@ func TestUserRegistrationEndToEnd(t *testing.T) {
 	if err := db.Raw("SELECT password_hash FROM users WHERE id = ?", body["id"]).Row().Scan(&hash); err != nil {
 		t.Fatal(err)
 	}
-	if hash == "uma-senha-de-teste-123!" {
+	if hash == "Uma-senha-de-teste-123!" {
 		t.Fatal("senha persistida em texto puro")
 	}
-	match, err := (password.Hasher{}).Verify("uma-senha-de-teste-123!", hash)
+	match, err := (password.Hasher{}).Verify("Uma-senha-de-teste-123!", hash)
 	if err != nil || !match {
 		t.Fatal("hash persistido não verifica a senha original")
 	}
@@ -60,7 +60,7 @@ func TestUserRegistrationEndToEnd(t *testing.T) {
 	}{
 		{payload, 409},
 		{`{"name":"Kaian","email":"outro@example.com","password":"curta"}`, 400},
-		{`{"name":"   ","email":"outro@example.com","password":"uma-senha-de-teste-123!"}`, 400},
+		{`{"name":"   ","email":"outro@example.com","password":"Uma-senha-de-teste-123!"}`, 400},
 	} {
 		response, err := client.Post(server.URL+"/users", "application/json", strings.NewReader(tt.body))
 		if err != nil {
@@ -145,7 +145,7 @@ func TestConcurrentRegistrationOfSameEmail(t *testing.T) {
 	for range 2 {
 		workers.Go(func() {
 			<-start
-			response, err := client.Post(server.URL+"/users", "application/json", strings.NewReader(`{"name":"Kaian","email":"same@example.com","password":"uma-senha-de-teste-123!"}`))
+			response, err := client.Post(server.URL+"/users", "application/json", strings.NewReader(`{"name":"Kaian","email":"same@example.com","password":"Uma-senha-de-teste-123!"}`))
 			if err != nil {
 				t.Error(err)
 				return

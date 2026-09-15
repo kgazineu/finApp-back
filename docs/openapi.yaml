@@ -174,9 +174,9 @@ components:
         password:
           type: string
           format: password
-          minLength: 15
+          minLength: 8
           maxLength: 128
-          description: De 15 a 128 caracteres Unicode, preservando espaços e sem regras de composição.
+          description: Ao menos 8 caracteres, com letras maiúsculas e minúsculas, número e caractere especial.
           writeOnly: true
 
     UserResponse:

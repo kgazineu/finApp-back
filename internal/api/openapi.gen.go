@@ -28,7 +28,7 @@ type CreateUserRequest struct {
 	// Name Example: Kaian
 	Name string `json:"name"`
 
-	// Password De 15 a 128 caracteres Unicode, preservando espaços e sem regras de composição.
+	// Password Ao menos 8 caracteres, com letras maiúsculas e minúsculas, número e caractere especial.
 	Password *string `json:"password,omitempty"`
 }
 
@@ -196,26 +196,26 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
