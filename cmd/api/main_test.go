@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -74,6 +75,23 @@ func TestOpenAPISpec(t *testing.T) {
 
 	if _, exists := spec.Paths["/health"]; !exists {
 		t.Error("a rota /health não foi encontrada na especificação")
+	}
+	var operations map[string]json.RawMessage
+	if err := json.Unmarshal(spec.Paths["/users"], &operations); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := operations["get"]; !exists {
+		t.Error("GET /users não foi encontrado na especificação publicada")
+	}
+	if _, exists := operations["post"]; !exists {
+		t.Error("POST /users deve continuar na especificação publicada")
+	}
+	document, err := api.GetSwagger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := document.Validate(context.Background()); err != nil {
+		t.Fatalf("especificação OpenAPI inválida: %v", err)
 	}
 }
 

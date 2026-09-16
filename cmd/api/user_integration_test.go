@@ -22,7 +22,7 @@ func TestUserRegistrationEndToEnd(t *testing.T) {
 	server := httptest.NewServer(newRouter(api.NewServer(service)))
 	t.Cleanup(server.Close)
 	client := &http.Client{Timeout: 15 * time.Second}
-	payload := `{"name":"Kaian","email":"kaian@example.com","password":"uma-senha-de-teste-123!"}`
+	payload := `{"name":"Kaian","email":"kaian@example.com","password":"Uma-senha-de-teste-123!"}`
 	response, err := client.Post(server.URL+"/users", "application/json", strings.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
@@ -47,10 +47,10 @@ func TestUserRegistrationEndToEnd(t *testing.T) {
 	if err := db.Raw("SELECT password_hash FROM users WHERE id = ?", body["id"]).Row().Scan(&hash); err != nil {
 		t.Fatal(err)
 	}
-	if hash == "uma-senha-de-teste-123!" {
+	if hash == "Uma-senha-de-teste-123!" {
 		t.Fatal("senha persistida em texto puro")
 	}
-	match, err := (password.Hasher{}).Verify("uma-senha-de-teste-123!", hash)
+	match, err := (password.Hasher{}).Verify("Uma-senha-de-teste-123!", hash)
 	if err != nil || !match {
 		t.Fatal("hash persistido não verifica a senha original")
 	}
@@ -60,7 +60,7 @@ func TestUserRegistrationEndToEnd(t *testing.T) {
 	}{
 		{payload, 409},
 		{`{"name":"Kaian","email":"outro@example.com","password":"curta"}`, 400},
-		{`{"name":"   ","email":"outro@example.com","password":"uma-senha-de-teste-123!"}`, 400},
+		{`{"name":"   ","email":"outro@example.com","password":"Uma-senha-de-teste-123!"}`, 400},
 	} {
 		response, err := client.Post(server.URL+"/users", "application/json", strings.NewReader(tt.body))
 		if err != nil {
@@ -78,6 +78,59 @@ func TestUserRegistrationEndToEnd(t *testing.T) {
 	if count != 1 {
 		t.Errorf("esperado apenas um cadastro, recebido %d", count)
 	}
+
+	for _, offset := range []string{"0", "1"} {
+		response, err := client.Get(server.URL + "/users?limit=1&offset=" + offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var page struct {
+			Data   []map[string]any `json:"data"`
+			Limit  int              `json:"limit"`
+			Offset int              `json:"offset"`
+		}
+		err = json.NewDecoder(response.Body).Decode(&page)
+		response.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("esperado 200 na listagem, recebido %d", response.StatusCode)
+		}
+		if page.Limit != 1 {
+			t.Errorf("limite esperado 1, recebido %d", page.Limit)
+		}
+		if offset == "0" {
+			if page.Offset != 0 || len(page.Data) != 1 {
+				t.Fatalf("esperada primeira página com um usuário: %+v", page)
+			}
+			if len(page.Data[0]) != 5 {
+				t.Fatal("listagem deve conter apenas os cinco campos públicos")
+			}
+			for key, value := range body {
+				if key == "createdAt" || key == "updatedAt" {
+					createdTime, err := time.Parse(time.RFC3339Nano, value.(string))
+					if err != nil {
+						t.Fatal(err)
+					}
+					listedTime, err := time.Parse(time.RFC3339Nano, page.Data[0][key].(string))
+					if err != nil {
+						t.Fatal(err)
+					}
+					// PostgreSQL persists timestamps with microsecond precision.
+					if !listedTime.Equal(createdTime.Truncate(time.Microsecond)) {
+						t.Errorf("campo %s difere do instante persistido", key)
+					}
+					continue
+				}
+				if page.Data[0][key] != value {
+					t.Errorf("campo %s difere do cadastro: %v", key, page.Data[0][key])
+				}
+			}
+		} else if page.Offset != 1 || page.Data == nil || len(page.Data) != 0 {
+			t.Fatalf("esperada página vazia após o último usuário: %+v", page)
+		}
+	}
 }
 
 func TestConcurrentRegistrationOfSameEmail(t *testing.T) {
@@ -92,7 +145,7 @@ func TestConcurrentRegistrationOfSameEmail(t *testing.T) {
 	for range 2 {
 		workers.Go(func() {
 			<-start
-			response, err := client.Post(server.URL+"/users", "application/json", strings.NewReader(`{"name":"Kaian","email":"same@example.com","password":"uma-senha-de-teste-123!"}`))
+			response, err := client.Post(server.URL+"/users", "application/json", strings.NewReader(`{"name":"Kaian","email":"same@example.com","password":"Uma-senha-de-teste-123!"}`))
 			if err != nil {
 				t.Error(err)
 				return

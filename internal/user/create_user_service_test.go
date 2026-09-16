@@ -17,18 +17,22 @@ type hasherStub struct {
 	err      error
 }
 
-func TestServiceCreatePasswordLength(t *testing.T) {
+func TestServiceCreatePasswordPolicy(t *testing.T) {
 	for _, tt := range []struct {
-		name, password string
-		valid          bool
+		name, password, message string
+		valid                   bool
 	}{
-		{"14 caracteres", strings.Repeat("a", 14), false},
-		{"15 caracteres", strings.Repeat("a", 15), true},
-		{"128 caracteres", strings.Repeat("a", 128), true},
-		{"129 caracteres", strings.Repeat("a", 129), false},
-		{"Unicode curto em caracteres", strings.Repeat("é", 8), false},
-		{"Unicode aceito", strings.Repeat("é", 15), true},
-		{"espaços preservados", "  frase de senha  ", true},
+		{"sete caracteres", "Ab1!def", "A senha precisa conter pelo menos 8 caracteres", false},
+		{"oito caracteres", "Ab1!defg", "", true},
+		{"sem maiúscula", "ab1!defg", "A senha precisa conter uma letra maiúscula", false},
+		{"sem minúscula", "AB1!DEFG", "A senha precisa conter uma letra minúscula", false},
+		{"sem número", "Abc!defg", "A senha precisa conter um número", false},
+		{"sem especial", "Abc1defg", "A senha precisa conter um caractere especial", false},
+		{"vários requisitos ausentes", "abcdefgh", "A senha precisa conter uma letra maiúscula, um número e um caractere especial", false},
+		{"Unicode aceito", "Ábcdéf1!", "", true},
+		{"espaço não é especial", "Abcdef1 ", "A senha precisa conter um caractere especial", false},
+		{"128 caracteres", "Ab1!" + strings.Repeat("a", 124), "", true},
+		{"limite máximo não é exposto", "Ab1!" + strings.Repeat("a", 125), user.ErrInvalidPassword.Error(), false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			hasher := &hasherStub{result: "hash-de-teste"}
@@ -44,6 +48,9 @@ func TestServiceCreatePasswordLength(t *testing.T) {
 			} else {
 				if !errors.Is(err, user.ErrInvalidPassword) {
 					t.Errorf("esperado ErrInvalidPassword, recebido %v", err)
+				}
+				if err == nil || err.Error() != tt.message {
+					t.Errorf("mensagem esperada %q, recebida %v", tt.message, err)
 				}
 				if hasher.called || repo.called {
 					t.Error("dependências chamadas para senha inválida")
@@ -82,6 +89,10 @@ type repositoryStub struct {
 	err      error
 }
 
+func (r *repositoryStub) List(context.Context, user.ListInput) ([]user.User, error) {
+	panic("List não deveria ser chamado nos testes de criação")
+}
+
 func (r *repositoryStub) Create(
 	ctx context.Context,
 	u user.User,
@@ -106,7 +117,7 @@ func TestServiceCreateHashesPasswordAndPersistsUser(t *testing.T) {
 	input := user.CreateInput{
 		Name:     "Kaian",
 		Email:    "kaian@example.com",
-		Password: "uma-senha-de-teste-123!",
+		Password: "Uma-senha-de-teste-123!",
 	}
 
 	created, err := service.Create(context.Background(), input)
@@ -184,7 +195,7 @@ func TestServiceCreateStopsWhenHashingFails(t *testing.T) {
 	input := user.CreateInput{
 		Name:     "Kaian",
 		Email:    "kaian@example.com",
-		Password: "uma-senha-de-teste-123!",
+		Password: "Uma-senha-de-teste-123!",
 	}
 
 	_, err := service.Create(context.Background(), input)
@@ -226,7 +237,7 @@ func TestServiceCreatePreservesRepositoryErrors(t *testing.T) {
 			input := user.CreateInput{
 				Name:     "Kaian",
 				Email:    "kaian@example.com",
-				Password: "uma-senha-de-teste-123!",
+				Password: "Uma-senha-de-teste-123!",
 			}
 
 			_, err := service.Create(context.Background(), input)

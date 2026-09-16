@@ -24,6 +24,10 @@ type userCreatorStub struct {
 	err      error
 }
 
+func (s *userCreatorStub) List(context.Context, user.ListInput) ([]user.User, error) {
+	panic("List não deveria ser chamado nos testes de criação")
+}
+
 func (s *userCreatorStub) Create(
 	ctx context.Context,
 	input user.CreateInput,
@@ -42,7 +46,8 @@ func TestCreateUserMapsServiceErrors(t *testing.T) {
 	}{
 		{"nome inválido", user.ErrInvalidName, 400, "nome não pode ficar vazio"},
 		{"e-mail inválido", user.ErrInvalidEmail, 400, "e-mail inválido"},
-		{"senha inválida", user.ErrInvalidPassword, 400, "senha deve conter entre 15 e 128 caracteres"},
+		{"senha inválida", user.ErrInvalidPassword, 400, "senha inválida"},
+		{"requisitos da senha", &user.PasswordValidationError{Missing: []string{"uma letra maiúscula", "um número"}}, 400, "A senha precisa conter uma letra maiúscula e um número"},
 		{"e-mail duplicado", fmt.Errorf("cadastro: %w", user.ErrEmailAlreadyExists), 409, "e-mail já cadastrado"},
 		{"falha interna", errors.New("detalhe interno que não pode vazar"), 500, "Não foi possível cadastrar o usuário"},
 		{"hash inválido é falha interna", user.ErrInvalidPasswordHash, 500, "Não foi possível cadastrar o usuário"},
@@ -50,7 +55,7 @@ func TestCreateUserMapsServiceErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			service := &userCreatorStub{err: tt.err}
 			router := newRouter(api.NewServer(service))
-			request := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"name":"Kaian","email":"kaian@example.com","password":"uma-senha-de-teste-123!"}`))
+			request := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"name":"Kaian","email":"kaian@example.com","password":"Uma-senha-de-teste-123!"}`))
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, request)
@@ -122,7 +127,7 @@ func TestCreateUser(t *testing.T) {
 	body := strings.NewReader(`{
 		"name": "Kaian",
 		"email": "kaian@example.com",
-		"password": "uma-senha-de-teste-123!"
+		"password": "Uma-senha-de-teste-123!"
 	}`)
 
 	request := httptest.NewRequest(http.MethodPost, "/users", body)
@@ -146,7 +151,7 @@ func TestCreateUser(t *testing.T) {
 	expectedInput := user.CreateInput{
 		Name:     "Kaian",
 		Email:    "kaian@example.com",
-		Password: "uma-senha-de-teste-123!",
+		Password: "Uma-senha-de-teste-123!",
 	}
 
 	if service.received != expectedInput {

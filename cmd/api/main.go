@@ -25,7 +25,11 @@ func newRouter(server api.ServerInterface) *gin.Engine {
 	// There is no trusted proxy configured for this deployment.
 	_ = router.SetTrustedProxies(nil)
 
-	api.RegisterHandlers(router, server)
+	api.RegisterHandlersWithOptions(router, server, api.GinServerOptions{
+		ErrorHandler: func(c *gin.Context, _ error, status int) {
+			c.JSON(status, api.ErrorResponse{Message: "Parâmetros da requisição inválidos"})
+		},
+	})
 	api.RegisterDocumentation(router)
 
 	return router

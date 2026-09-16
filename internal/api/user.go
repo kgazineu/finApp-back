@@ -59,11 +59,14 @@ func (s *Server) CreateUser(c *gin.Context) {
 	created, err := s.users.Create(ctx, input)
 	if err != nil {
 		status, message := http.StatusInternalServerError, "Não foi possível cadastrar o usuário"
+		var passwordValidationErr *user.PasswordValidationError
 		switch {
 		case errors.Is(err, user.ErrInvalidName):
 			status, message = http.StatusBadRequest, user.ErrInvalidName.Error()
 		case errors.Is(err, user.ErrInvalidEmail):
 			status, message = http.StatusBadRequest, user.ErrInvalidEmail.Error()
+		case errors.As(err, &passwordValidationErr):
+			status, message = http.StatusBadRequest, passwordValidationErr.Error()
 		case errors.Is(err, user.ErrInvalidPassword):
 			status, message = http.StatusBadRequest, user.ErrInvalidPassword.Error()
 		case errors.Is(err, user.ErrEmailAlreadyExists):

@@ -8,6 +8,7 @@ import (
 	"compress/flate"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"net/url"
 	"path"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gin-gonic/gin"
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
@@ -26,7 +28,7 @@ type CreateUserRequest struct {
 	// Name Example: Kaian
 	Name string `json:"name"`
 
-	// Password De 15 a 128 caracteres Unicode, preservando espaços e sem regras de composição.
+	// Password Ao menos 8 caracteres, com letras maiúsculas e minúsculas, número e caractere especial.
 	Password *string `json:"password,omitempty"`
 }
 
@@ -42,6 +44,13 @@ type HealthResponse struct {
 	Status string `json:"status"`
 }
 
+// ListUsersResponse defines model for ListUsersResponse.
+type ListUsersResponse struct {
+	Data   []UserResponse `json:"data"`
+	Limit  int            `json:"limit"`
+	Offset int            `json:"offset"`
+}
+
 // UserResponse defines model for UserResponse.
 type UserResponse struct {
 	CreatedAt time.Time `json:"createdAt"`
@@ -55,6 +64,15 @@ type UserResponse struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// ListUsersParams defines parameters for ListUsers.
+type ListUsersParams struct {
+	// Limit Quantidade máxima de usuários na página.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Quantidade de usuários a pular antes de iniciar a página.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = CreateUserRequest
 
@@ -63,6 +81,9 @@ type ServerInterface interface {
 	// GetHealth Verifica a saúde da aplicação
 	// (GET /health)
 	GetHealth(c *gin.Context)
+	// ListUsers Lista usuários com paginação
+	// (GET /users)
+	ListUsers(c *gin.Context, params ListUsersParams)
 	// CreateUser Cadastra um usuário
 	// (POST /users)
 	CreateUser(c *gin.Context)
@@ -88,6 +109,41 @@ func (siw *ServerInterfaceWrapper) GetHealth(c *gin.Context) {
 	}
 
 	siw.Handler.GetHealth(c)
+}
+
+// ListUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListUsers(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUsersParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", c.Request.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter offset: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListUsers(c, params)
 }
 
 // CreateUser operation middleware
@@ -131,6 +187,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	}
 
 	router.GET(options.BaseURL+"/health", wrapper.GetHealth)
+	router.GET(options.BaseURL+"/users", wrapper.ListUsers)
 	router.POST(options.BaseURL+"/users", wrapper.CreateUser)
 }
 
@@ -139,21 +196,26 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"vFZPb9vGE/0qi/n9jrT+2HHh8lTHSVojBWoEdS+BDhPuSFqH3N3MLBULAT+M0UNO/QK96osVu6Qki1Ra",
-	"BDB8o4SdmTfvvX3kFyhc5Z0lGwTyLyDFkipMj1dMGOhWiN/Rp5okxD89O08cDKUjVKEp08M9Vr4kyOEj",
-	"GrQ/db9Hhasgg7njCgPk3fkMwtrHsxLY2AU0GVis6LDP29gHMqiM/ZXsIiwhnx4p9Cjy2bGOxZqkYOOD",
-	"cRZyeEVqeq5QTU8vVIGMRSAmUbfWFE5TpjyTEK/QaqdIPG6+OlGkhCrFtGAUpUklcsRsvm7+dKPHm+zm",
-	"ZlDh/Q7h6cUh4vM+5Aw+swn0my3XkAeuqWkyYPpUGyYN+fuWiWzH1G7ObNfJfbijIsTlXzM7fkfinRUa",
-	"qlORCC56vL5C7dJqZAOjRmXsavNQGu1kKEwP27bhMSy/EJZh+W0wEjDUcojFffzPkV3ZsYmtM/fzUGsT",
-	"tcfy5tHkOZZCWQ9MkaytL5Old5pqDHQSTOJ/YLQns7rRB0Pr2ujvuxGDo7XX37dNj+MEoOe7PUOP+w9l",
-	"iL2Mnbvh/bu8uVYeGdWCmGxhsCIbnJobi7Ygwy7iMiGt9sbYS+/V5c01ZLAilrbFZDQdTeKGzpNFbyCH",
-	"s9FkdJbuRVgmKcfLZLz4uKDEQBQaI4hrDTn8TKG1JsSlW7ekwtPJJFnB2UA2FaL3pSlS6fhOIoJtHsan",
-	"/zPNIYf/jfeBOe7Sctwzf2Klx0ZqnXJEaRPPbf5aUZm0kLqqkNeQwx/EZm4KVKgEN39rUhoV7ksjZbiQ",
-	"KFq31Cw2GNdCnJbyTo5wsE9yaJUnCS+dXj/Z/sNXRXNospR0AwGmTwbgIAuO0H8r9eaBjVMFG9QueurF",
-	"E+p/GMRH5v9b6iYsPz4fltcn8Y6ru82DKlCjREAtI9Oz50Nx5di7aO9kku4Vq+i+IE3qhxfqrXnZYjp/",
-	"Tkxpysnva09K0yp+DbAaDGwyOH9O87zBchkdE4gt9hLjqlNQ1ZWqO5M/SonbFAyz1DR+7aSYeD+I6uqD",
-	"IRtIla7AmP41l5DDMgSfj8fpz6WTkF9MLibQzHbt+3228dXF3LdDrH25bTOsyfqNuq1cvDHbrWRf127V",
-	"zJp/AgAA//8=",
+	"zFfNctRGEH6VrkmOYlc2kHJ0iiGQuKAqDgm5UD40M727DZofZkbGG2ofxskhJ16Aq14sNSOt9k9Aucpx",
+	"5WRJnu7++pvur3s/CGm1s4ZMDKL6IIJckMb8+NgTRnoZyL+gdw2FmD46bx35yJSPkEau88MValeTqMRb",
+	"ZDQ/9O8TabUoxMx6jVFU/flCxKVLZ0P0bOZiVQiDmnb9PEt+RCE0m+dk5nEhqqMRQ4chvLdeJWNFQXp2",
+	"ka0RlTi1oMnYACcg0aOM5CkUIK2GmqLHABq5/RRkU2MAAs1m/VaAaT9p8hZoYwsUHEnGerKd0RC/EBqv",
+	"BqTHJzvIT/aRF+K950i/mHopqugbWq0K4eldw56UqF51hBQDYUOYi8GTff2GZEwcPPHe+hcUnDWBDi9J",
+	"Uwg436P3R1Q2gCIgEz0qBDaX7XXNyobD+9nDtnY4huVnwjouPg8mRIxN2MVi3341ZG82FvE5h5iKNGwH",
+	"RaU41QHW51vhZ1gHKvYQKYyY/nIknT9862kmKvHNdNMZ074tpl039HFW+c7POrujshzAofe4TP+uWXNu",
+	"G41XrBvdH9Ns+rfBhE2kOflkZGezQJ3V+lx5eG6PoJzFOuDgY4yvnRRuRpXMiqBOM7ihBRRGuhc51+tB",
+	"f96aQrDaCdo0rG4mJAdHG6duls0e5RnAXp9uGNr2f3gNyRebmR2RrfMzcOgR5uTJSEZNJlqYsUEjib1N",
+	"uDjm1J6yOXUOTs/PRCEuyYfORTk5mpS5khwZdCwqcX9STu5nHYmLfJXTRW7U9Djvii1dNCYQZ0pU4ieK",
+	"XSuLlHRXLdnwuCxzKVgTyWRDdK5mmU2nb0JCsB4jX+umPbHIrOyxkV23/7R/W1CczrUfL6nOdxEardEv",
+	"RSX+IM8zlggIAdtPikAh4MY0UYbzkC6tT+oiOZg2STa2KNiN/YKi9QahCU177dkGIA3WK9IgPQVJJlJS",
+	"0OHOu+GiKJB2GAmc9cBqAi81gmuv52wQAmnwFJo6ZgH2fYzUvsnaQs0hIlzin4ydv0764LgsJ/AbmUUe",
+	"VgsMCwpgGiMRQmKHjayb9mNyahDylYWIaVbtXuwgl7kaPGqKmYRX++n/2qCJrFAR6Pb6ijWmZDdkmCGp",
+	"FISTybuG/HLdFNUgRptiUDTDpo6iOi6LG2jiqvgCuB1QCK6p0QOaSHm8sWHJ6cPXwPaKOYp2G96YFF/8",
+	"hz1yON5G2uS8r65tLpIAPLhFILtbxhgI9O1fmqLvFguHCVLXulvLxaoQD+8S1VOsF2m7ieQN7unG89xr",
+	"m+pJ7bYFe0s2uo65SAunDSNyudmVRTckKMRHVi1vLc/DZXy1O4/yEnlQh0e3BmB38znk+WXPIkjPqOyd",
+	"V9+XFtqM5fu7w/LkXloH4E17DRIVhgSoY+To/t2heGy9s2kS5iIJ3LUiXUlSBN89gGf8qMP08C4x5Sj3",
+	"fl+6pNyXBIE8HAT8P4nE4/4GodGDVIwoQzYifzk+TE/1a877Qm0lpkWx8bWoxCJGV02n+ePChlidlCel",
+	"SPOkd7/vZ73p9BvR5/edfqr1687hAO2zyr9wrcn7yO70GFx0Ca4uVv8GAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
