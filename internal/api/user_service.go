@@ -9,4 +9,5 @@ import (
 type UserService interface {
 	Create(ctx context.Context, input user.CreateInput) (user.User, error)
 	List(ctx context.Context, input user.ListInput) ([]user.User, error)
+	Update(ctx context.Context, input user.UpdateInput) (user.User, error)
 }
