@@ -28,6 +28,10 @@ func (s *userCreatorStub) List(context.Context, user.ListInput) ([]user.User, er
 	panic("List não deveria ser chamado nos testes de criação")
 }
 
+func (s *userCreatorStub) Update(context.Context, user.UpdateInput) (user.User, error) {
+	panic("Update não deveria ser chamado nos testes de criação")
+}
+
 func (s *userCreatorStub) Create(
 	ctx context.Context,
 	input user.CreateInput,

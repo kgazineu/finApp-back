@@ -93,6 +93,14 @@ func (r *repositoryStub) List(context.Context, user.ListInput) ([]user.User, err
 	panic("List não deveria ser chamado nos testes de criação")
 }
 
+func (r *repositoryStub) FindByID(context.Context, uuid.UUID) (user.User, error) {
+	panic("FindByID não deveria ser chamado nos testes de criação")
+}
+
+func (r *repositoryStub) Update(context.Context, user.User) (user.User, error) {
+	panic("Update não deveria ser chamado nos testes de criação")
+}
+
 func (r *repositoryStub) Create(
 	ctx context.Context,
 	u user.User,
