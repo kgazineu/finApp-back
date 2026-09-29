@@ -79,7 +79,7 @@ func TestUserRepositoryListPreservesCanceledContext(t *testing.T) {
 
 func TestUserRepositoryListReportsDatabaseFailure(t *testing.T) {
 	tx := newTestDB(t)
-	if err := tx.Exec("DROP TABLE users").Error; err != nil {
+	if err := tx.Exec("ALTER TABLE users RENAME TO users_unavailable").Error; err != nil {
 		t.Fatal(err)
 	}
 	_, err := postgres.NewUserRepository(tx).List(context.Background(), user.ListInput{Limit: 20})
