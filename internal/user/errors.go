@@ -9,6 +9,9 @@ var (
 	ErrEmailAlreadyExists = errors.New("e-mail já cadastrado")
 	ErrInvalidPassword    = errors.New("senha inválida")
 	ErrInvalidPagination  = errors.New("limit deve estar entre 1 e 100 e offset deve ser maior ou igual a zero")
+	ErrUserNotFound       = errors.New("usuário não encontrado")
+	ErrInvalidUserID      = errors.New("ID de usuário inválido")
+	ErrNoFieldsToUpdate   = errors.New("informe ao menos um campo para atualização")
 )
 
 type PasswordValidationError struct {
