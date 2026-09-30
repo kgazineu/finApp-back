@@ -76,6 +76,33 @@ func TestOpenAPISpec(t *testing.T) {
 	if _, exists := spec.Paths["/health"]; !exists {
 		t.Error("a rota /health não foi encontrada na especificação")
 	}
+	if _, exists := spec.Paths["/sessions"]; !exists {
+		t.Error("POST /sessions não foi encontrado na especificação publicada")
+	}
+	var transactionOperations map[string]json.RawMessage
+	if err := json.Unmarshal(spec.Paths["/transactions"], &transactionOperations); err != nil {
+		t.Fatal(err)
+	}
+	for _, method := range []string{"get", "post"} {
+		if _, exists := transactionOperations[method]; !exists {
+			t.Errorf("%s /transactions não foi encontrado na especificação publicada", method)
+		}
+	}
+	for path, methods := range map[string][]string{
+		"/dashboard":              {"get"},
+		"/goals":                  {"get", "post"},
+		"/goals/{id}/allocations": {"post"},
+	} {
+		var operations map[string]json.RawMessage
+		if err := json.Unmarshal(spec.Paths[path], &operations); err != nil {
+			t.Fatal(err)
+		}
+		for _, method := range methods {
+			if _, exists := operations[method]; !exists {
+				t.Errorf("%s %s não foi encontrado na especificação publicada", method, path)
+			}
+		}
+	}
 	var operations map[string]json.RawMessage
 	if err := json.Unmarshal(spec.Paths["/users"], &operations); err != nil {
 		t.Fatal(err)

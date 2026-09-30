@@ -39,8 +39,11 @@ func TestTransactionRepositoryCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created != input {
-		t.Errorf("transação alterada na persistência: got=%+v want=%+v", created, input)
+	if created.ID != input.ID || created.UserID != input.UserID || created.AmountMinor != input.AmountMinor ||
+		created.NecessityLevel != input.NecessityLevel || !created.CreatedAt.Equal(createdAt) ||
+		created.Kind != "expense" || created.Description != "Lançamento" || created.Category != "Outros" ||
+		created.Installments != 1 || !created.OccurredAt.Equal(createdAt) {
+		t.Errorf("defaults legados incorretos: %+v", created)
 	}
 	var owner uuid.UUID
 	var amount int64
@@ -52,6 +55,50 @@ func TestTransactionRepositoryCreate(t *testing.T) {
 	}
 	if owner != ownerID || amount != input.AmountMinor || level != 5 || !storedAt.Equal(createdAt) {
 		t.Errorf("valores persistidos incorretos: owner=%s amount=%d level=%d created_at=%s", owner, amount, level, storedAt)
+	}
+}
+
+func TestTransactionRepositoryCreateEnriched(t *testing.T) {
+	db := newTestDB(t)
+	ownerID := transactionOwner(t, db)
+	repo := postgres.NewTransactionRepository(db)
+	occurred := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
+	for _, input := range []transaction.CreateInput{
+		{UserID: ownerID, AmountMinor: 300, Kind: "income", Description: "Salário", Category: "Trabalho", Installments: 1, OccurredAt: occurred},
+		{UserID: ownerID, AmountMinor: 200, NecessityLevel: 2, Kind: "expense", Description: "Compra", Category: "Casa", PaymentMethod: "card", Installments: 3, OccurredAt: occurred.Add(time.Hour)},
+	} {
+		tx, err := transaction.NewDetailed(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		created, err := repo.Create(context.Background(), tx)
+		if err != nil || created != tx {
+			t.Fatalf("round trip criação: got=%+v want=%+v err=%v", created, tx, err)
+		}
+		var level *int
+		var payment *string
+		if err := db.Raw("SELECT necessity_level, payment_method FROM transactions WHERE id = ?", tx.ID).Row().Scan(&level, &payment); err != nil {
+			t.Fatal(err)
+		}
+		if input.Kind == "income" && (level != nil || payment != nil) {
+			t.Errorf("receita deve persistir NULL: level=%v payment=%v", level, payment)
+		}
+		if input.Kind == "expense" && (level == nil || *level != 2 || payment == nil || *payment != "card") {
+			t.Errorf("despesa incorreta: level=%v payment=%v", level, payment)
+		}
+	}
+}
+
+func TestTransactionRepositoryDoesNotDiscardInvalidIncomeNecessity(t *testing.T) {
+	db := newTestDB(t)
+	owner := transactionOwner(t, db)
+	tx := transaction.Transaction{
+		ID: uuid.New(), UserID: owner, AmountMinor: 100, Kind: "income", NecessityLevel: 2,
+		Description: "Salário", Category: "Trabalho", Installments: 1,
+		OccurredAt: time.Now().UTC(), CreatedAt: time.Now().UTC(),
+	}
+	if _, err := postgres.NewTransactionRepository(db).Create(context.Background(), tx); err == nil {
+		t.Fatal("repositório não deve descartar necessidade inválida de receita")
 	}
 }
 
@@ -85,6 +132,36 @@ func TestTransactionsDatabaseConstraints(t *testing.T) {
 				VALUES (?, ?, ?, ?, ?)`, uuid.New(), ownerID, tc.amount, tc.level, time.Now().UTC()).Error
 			if err == nil {
 				t.Fatal("banco aceitou transação inválida")
+			}
+		})
+	}
+}
+
+func TestEnrichedTransactionsDatabaseConstraints(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		kind         string
+		level        any
+		payment      any
+		installments int
+	}{
+		{"unknown kind", "other", 1, nil, 1},
+		{"income with necessity", "income", 2, nil, 1},
+		{"expense missing necessity", "expense", nil, "card", 1},
+		{"income with payment", "income", nil, "pix", 1},
+		{"non-card installments", "expense", 1, "pix", 2},
+		{"empty payment installments", "expense", 1, nil, 2},
+		{"too many installments", "expense", 1, "card", 61},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newTestDB(t)
+			ownerID := transactionOwner(t, db)
+			err := db.Exec(`INSERT INTO transactions
+				(id, user_id, amount_minor, necessity_level, created_at, kind, description, category, payment_method, installments, occurred_at)
+				VALUES (?, ?, 100, ?, ?, ?, 'Test', 'Other', ?, ?, ?)`,
+				uuid.New(), ownerID, tc.level, time.Now().UTC(), tc.kind, tc.payment, tc.installments, time.Now().UTC()).Error
+			if err == nil {
+				t.Fatal("banco aceitou combinação inválida")
 			}
 		})
 	}

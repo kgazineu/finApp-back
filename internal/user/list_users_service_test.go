@@ -19,6 +19,56 @@ func (r *listRepositoryStub) List(ctx context.Context, input user.ListInput) ([]
 	return r.list(ctx, input)
 }
 
+func TestServiceGetReturnsPublicProfile(t *testing.T) {
+	id := uuid.New()
+	ctx := context.Background()
+	repo := &repositoryWithFindStub{find: func(gotCtx context.Context, gotID uuid.UUID) (user.User, error) {
+		if gotCtx != ctx || gotID != id {
+			t.Error("Get must pass the caller context and ID to FindByID")
+		}
+		return user.User{ID: id, Name: "Kaian", Email: "kaian@example.com", PasswordHash: "secret-hash"}, nil
+	}}
+	got, err := user.NewService(repo, nil).Get(ctx, id)
+	if err != nil || got.ID != id || got.Name != "Kaian" || got.Email != "kaian@example.com" || got.PasswordHash != "" {
+		t.Fatalf("unexpected public profile: %+v, %v", got, err)
+	}
+}
+
+type repositoryWithFindStub struct {
+	repositoryStub
+	find func(context.Context, uuid.UUID) (user.User, error)
+}
+
+func (r *repositoryWithFindStub) FindByID(ctx context.Context, id uuid.UUID) (user.User, error) {
+	return r.find(ctx, id)
+}
+
+func TestServiceGetRejectsInvalidIDAndCanceledContext(t *testing.T) {
+	repo := &repositoryWithFindStub{find: func(context.Context, uuid.UUID) (user.User, error) {
+		t.Fatal("FindByID must not be called")
+		return user.User{}, nil
+	}}
+	service := user.NewService(repo, nil)
+	if _, err := service.Get(context.Background(), uuid.Nil); !errors.Is(err, user.ErrInvalidUserID) {
+		t.Fatalf("expected invalid ID, got %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := service.Get(ctx, uuid.New()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled context, got %v", err)
+	}
+}
+
+func TestServiceGetPreservesRepositoryError(t *testing.T) {
+	failure := errors.New("database failure")
+	repo := &repositoryWithFindStub{find: func(context.Context, uuid.UUID) (user.User, error) {
+		return user.User{}, failure
+	}}
+	if _, err := user.NewService(repo, nil).Get(context.Background(), uuid.New()); !errors.Is(err, failure) || err == failure {
+		t.Fatalf("expected wrapped repository error, got %v", err)
+	}
+}
+
 func TestServiceListReturnsRepositoryUsers(t *testing.T) {
 	want := []user.User{{ID: uuid.New(), Name: "Kaian", Email: "kaian@example.com"}}
 	input := user.ListInput{Limit: 10, Offset: 20}

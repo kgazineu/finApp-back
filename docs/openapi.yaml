@@ -14,6 +14,14 @@ tags:
     description: Verificação da saúde da aplicação
   - name: Users
     description: Cadastro e consulta de usuários
+  - name: Sessions
+    description: Autenticação por sessão
+  - name: Transactions
+    description: Lançamentos financeiros
+  - name: Goals
+    description: Metas com saldo virtual, sem transferência bancária
+  - name: Dashboard
+    description: Resumo de lançamentos registrados, sem vínculo bancário
 
 paths:
   /health:
@@ -30,16 +38,371 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
 
+  /sessions:
+    post:
+      operationId: createSession
+      summary: Autentica um usuário e cria uma sessão de 24 horas
+      tags:
+        - Sessions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "200":
+          description: Sessão criada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+        "400":
+          description: Corpo inválido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Credenciais inválidas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Corpo excede 64 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Content-Type deve ser application/json
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Falha interna
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /transactions:
+    get:
+      operationId: listTransactions
+      summary: Lista transações do titular autenticado
+      description: Retorna transações por occurredAt decrescente, com desempate por id. Páginas vazias retornam data como lista vazia.
+      tags:
+        - Transactions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Página de transações
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListTransactionsResponse"
+        "400":
+          description: Paginação inválida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Sessão ausente, inválida ou expirada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Falha interna
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createTransaction
+      summary: Cria uma transação para o titular autenticado
+      tags:
+        - Transactions
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTransactionRequest"
+      responses:
+        "201":
+          description: Transação criada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionResponse"
+        "400":
+          description: Dados inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Sessão ausente, inválida ou expirada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Corpo excede 64 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Content-Type deve ser application/json
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Falha interna
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /dashboard:
+    get:
+      operationId: getDashboard
+      summary: Resumo dos lançamentos rastreados do titular
+      description: >-
+        Totais do mês em UTC; netTrackedMinor é a soma histórica das receitas menos
+        despesas lançadas, não um saldo bancário. Metas são alocações virtuais.
+      tags: [Dashboard]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: month
+          in: query
+          description: Mês em UTC, padrão é o mês atual.
+          schema:
+            type: string
+            pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+            example: '2026-09'
+      responses:
+        "200":
+          description: Resumo financeiro rastreado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardResponse"
+        "400":
+          description: Mês inválido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Sessão inválida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Falha interna
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /goals:
+    get:
+      operationId: listGoals
+      summary: Lista metas virtuais do titular
+      tags: [Goals]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Página de metas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListGoalsResponse"
+        "400":
+          description: Paginação inválida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Sessão inválida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Falha interna
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createGoal
+      summary: Cria uma meta com saldo virtual inicial zero
+      tags: [Goals]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGoalRequest"
+      responses:
+        "201":
+          description: Meta criada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoalResponse"
+        "400":
+          description: Entrada inválida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Sessão inválida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Corpo excede 64 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Content-Type inválido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Falha interna
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /goals/{id}/allocations:
+    post:
+      operationId: adjustGoal
+      summary: Ajusta saldo virtual, sem transferir dinheiro
+      tags: [Goals]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdjustGoalRequest"
+      responses:
+        "200":
+          description: Saldo virtual atualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoalResponse"
+        "400":
+          description: Valor ou operação inválida; saldo insuficiente
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Sessão inválida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Meta não encontrada para o titular
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Corpo excede 64 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Content-Type inválido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Falha interna
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /users:
     get:
       operationId: listUsers
-      summary: Lista usuários com paginação
+      summary: Consulta somente o perfil autenticado
       description: >-
-        Retorna usuários em ordem crescente de createdAt, com desempate por id.
-        Uma página sem resultados retorna data como lista vazia, com status 200.
-        Senhas e hashes nunca são incluídos na resposta.
+        Por privacidade, retorna no máximo o próprio usuário; offset maior que zero
+        retorna data vazia. Senhas e hashes nunca são incluídos. A listagem global
+        de usuários foi descontinuada.
       tags:
         - Users
+      security:
+        - bearerAuth: []
       parameters:
         - name: limit
           in: query
@@ -65,6 +428,18 @@ paths:
                 $ref: "#/components/schemas/ListUsersResponse"
         "400":
           description: Parâmetros de paginação inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Sessão ausente ou inválida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Perfil não encontrado
           content:
             application/json:
               schema:
@@ -128,9 +503,11 @@ paths:
     patch:
       operationId: updateUser
       summary: Atualiza os dados de um usuário
-      description: Atualiza o nome, o e-mail ou ambos.
+      description: Atualiza somente o próprio usuário; outro ID responde 404.
       tags:
         - Users
+      security:
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -159,7 +536,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "404":
-          description: Usuário não encontrado
+          description: Usuário não encontrado ou pertence a outro titular
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Sessão ausente ou inválida
           content:
             application/json:
               schema:
@@ -190,7 +573,250 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Token opaco obtido em POST /sessions.
   schemas:
+    CategoryTotalResponse:
+      type: object
+      additionalProperties: false
+      required: [category, totalMinor]
+      properties:
+        category:
+          type: string
+        totalMinor:
+          type: integer
+          format: int64
+    DashboardResponse:
+      type: object
+      additionalProperties: false
+      required: [month, incomeMinor, expenseMinor, netTrackedMinor, goalsSavedMinor, goalsTargetMinor, recentTransactions, expensesByCategory]
+      properties:
+        month:
+          type: string
+          example: '2026-09'
+        incomeMinor:
+          type: integer
+          format: int64
+        expenseMinor:
+          type: integer
+          format: int64
+        netTrackedMinor:
+          type: integer
+          format: int64
+        goalsSavedMinor:
+          type: integer
+          format: int64
+        goalsTargetMinor:
+          type: integer
+          format: int64
+        recentTransactions:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/TransactionResponse"
+        expensesByCategory:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/CategoryTotalResponse"
+    CreateGoalRequest:
+      type: object
+      additionalProperties: false
+      required: [name, targetMinor]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        targetMinor:
+          type: integer
+          format: int64
+          minimum: 1
+    AdjustGoalRequest:
+      type: object
+      additionalProperties: false
+      required: [direction, amountMinor]
+      properties:
+        direction:
+          type: string
+          enum: [deposit, withdraw]
+        amountMinor:
+          type: integer
+          format: int64
+          minimum: 1
+    GoalResponse:
+      type: object
+      additionalProperties: false
+      required: [id, name, targetMinor, savedMinor, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        targetMinor:
+          type: integer
+          format: int64
+        savedMinor:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ListGoalsResponse:
+      type: object
+      additionalProperties: false
+      required: [data, limit, offset]
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/GoalResponse"
+        limit:
+          type: integer
+        offset:
+          type: integer
+    ListTransactionsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+        - limit
+        - offset
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/TransactionResponse"
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        offset:
+          type: integer
+          minimum: 0
+    CreateSessionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          writeOnly: true
+    SessionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - token
+        - tokenType
+        - expiresAt
+      properties:
+        token:
+          type: string
+          description: Segredo de sessão; não armazenar em logs.
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresAt:
+          type: string
+          format: date-time
+    CreateTransactionRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        O formato antigo com apenas amountMinor e necessityLevel permanece como
+        despesa legada. Novos lançamentos exigem kind, description, category,
+        occurredAt e installments; despesas exigem paymentMethod e necessityLevel.
+        Receita não aceita necessityLevel ou paymentMethod e deve ter uma parcela.
+        Parcelamento é apenas um atributo informativo; não cria faturas ou cobranças.
+      required:
+        - amountMinor
+      properties:
+        amountMinor:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Valor positivo em unidades menores. A moeda do produto ainda precisa ser definida; não misturar moedas.
+        necessityLevel:
+          type: integer
+          minimum: 1
+          maximum: 5
+        kind:
+          type: string
+          enum: [income, expense]
+        description:
+          type: string
+          minLength: 1
+          maxLength: 200
+        category:
+          type: string
+          minLength: 1
+          maxLength: 80
+        paymentMethod:
+          type: string
+          enum: [card, pix, debit]
+        installments:
+          type: integer
+          minimum: 1
+          maximum: 60
+        occurredAt:
+          type: string
+          format: date-time
+    TransactionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - amountMinor
+        - kind
+        - description
+        - category
+        - installments
+        - occurredAt
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        amountMinor:
+          type: integer
+          format: int64
+        kind:
+          type: string
+          enum: [income, expense]
+        description:
+          type: string
+        category:
+          type: string
+        paymentMethod:
+          type: string
+          enum: [card, pix, debit]
+        installments:
+          type: integer
+        necessityLevel:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Apenas despesas.
+        occurredAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
     ListUsersResponse:
       type: object
       additionalProperties: false

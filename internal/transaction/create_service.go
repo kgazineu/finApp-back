@@ -3,6 +3,7 @@ package transaction
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -11,10 +12,19 @@ type CreateInput struct {
 	UserID         uuid.UUID
 	AmountMinor    int64
 	NecessityLevel int
+	Kind           string
+	// KindProvided lets adapters distinguish an explicitly empty kind from an omitted legacy kind.
+	KindProvided  bool
+	Description   string
+	Category      string
+	PaymentMethod string
+	Installments  int
+	OccurredAt    time.Time
 }
 
 type Repository interface {
 	Create(ctx context.Context, tx Transaction) (Transaction, error)
+	List(ctx context.Context, input ListInput) ([]Transaction, error)
 }
 
 type Service struct {
@@ -29,7 +39,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Transaction, e
 	if err := ctx.Err(); err != nil {
 		return Transaction{}, err
 	}
-	tx, err := New(input.UserID, input.AmountMinor, input.NecessityLevel)
+	tx, err := NewDetailed(input)
 	if err != nil {
 		return Transaction{}, err
 	}
