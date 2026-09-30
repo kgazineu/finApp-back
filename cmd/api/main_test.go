@@ -88,6 +88,21 @@ func TestOpenAPISpec(t *testing.T) {
 			t.Errorf("%s /transactions não foi encontrado na especificação publicada", method)
 		}
 	}
+	for path, methods := range map[string][]string{
+		"/dashboard":              {"get"},
+		"/goals":                  {"get", "post"},
+		"/goals/{id}/allocations": {"post"},
+	} {
+		var operations map[string]json.RawMessage
+		if err := json.Unmarshal(spec.Paths[path], &operations); err != nil {
+			t.Fatal(err)
+		}
+		for _, method := range methods {
+			if _, exists := operations[method]; !exists {
+				t.Errorf("%s %s não foi encontrado na especificação publicada", method, path)
+			}
+		}
+	}
 	var operations map[string]json.RawMessage
 	if err := json.Unmarshal(spec.Paths["/users"], &operations); err != nil {
 		t.Fatal(err)

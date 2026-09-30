@@ -52,6 +52,55 @@ func TestTransactionRepositoryListIsScopedAndStable(t *testing.T) {
 	}
 }
 
+func TestTransactionRepositoryListUsesOccurredAtAndReadsLegacyDefaults(t *testing.T) {
+	db := newTestDB(t)
+	owner := transactionOwner(t, db)
+	repo := postgres.NewTransactionRepository(db)
+	base := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	legacyID := uuid.New()
+	if err := db.Exec(`INSERT INTO transactions (id, user_id, amount_minor, necessity_level, created_at, occurred_at)
+		VALUES (?, ?, ?, ?, ?, ?)`, legacyID, owner, 100, 3, base, base).Error; err != nil {
+		t.Fatal(err)
+	}
+	income, err := transaction.NewDetailed(transaction.CreateInput{
+		UserID: owner, AmountMinor: 500, Kind: "income", Description: "Salário", Category: "Trabalho", Installments: 1, OccurredAt: base.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	income.CreatedAt = base.Add(-time.Hour)
+	if _, err := repo.Create(context.Background(), income); err != nil {
+		t.Fatal(err)
+	}
+	laterID := uuid.New()
+	later := transaction.Transaction{
+		ID: laterID, UserID: owner, AmountMinor: 200, NecessityLevel: 1,
+		Kind: "expense", Description: "Compra", Category: "Casa", PaymentMethod: "pix", Installments: 1,
+		OccurredAt: base.Add(time.Hour), CreatedAt: base.Add(-2 * time.Hour),
+	}
+	if _, err := repo.Create(context.Background(), later); err != nil {
+		t.Fatal(err)
+	}
+	items, err := repo.List(context.Background(), transaction.ListInput{UserID: owner, Limit: 20})
+	if err != nil || len(items) != 3 {
+		t.Fatalf("listagem: %+v err=%v", items, err)
+	}
+	first, second := income.ID, laterID
+	if first.String() < second.String() {
+		first, second = second, first
+	}
+	if items[0].ID != first || items[1].ID != second || items[2].ID != legacyID {
+		t.Errorf("ordenação por occurred_at/id incorreta: %+v", items)
+	}
+	if items[2].Kind != "expense" || items[2].Description != "Lançamento" || items[2].Category != "Outros" ||
+		items[2].Installments != 1 || items[2].PaymentMethod != "" || items[2].NecessityLevel != 3 {
+		t.Errorf("leitura da linha legada incorreta: %+v", items[2])
+	}
+	if items[0].Kind == "income" && items[0].NecessityLevel != 0 || items[1].Kind == "income" && items[1].NecessityLevel != 0 {
+		t.Errorf("income deveria ter necessidade zero: %+v", items)
+	}
+}
+
 func TestTransactionRepositoryListPropagatesDatabaseErrors(t *testing.T) {
 	db := newTestDB(t)
 	if err := db.Exec("ALTER TABLE transactions RENAME TO transactions_unavailable").Error; err != nil {

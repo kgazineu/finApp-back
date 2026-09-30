@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kgazineu/finApp-back/internal/transaction"
@@ -62,6 +63,30 @@ func TestServiceCreateRejectsInvalidInputWithoutPersisting(t *testing.T) {
 		if err == nil || repo.called != 0 {
 			t.Errorf("entrada inválida persistida: input=%+v err=%v", input, err)
 		}
+	}
+}
+
+func TestServiceCreateEnrichedIncome(t *testing.T) {
+	repo := &repositoryStub{}
+	input := transaction.CreateInput{
+		UserID: uuid.New(), AmountMinor: 4500, Kind: "income", Description: "  Salário ",
+		Category: " Trabalho ", Installments: 1,
+	}
+	input.OccurredAt = time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	got, err := transaction.NewService(repo).Create(context.Background(), input)
+	if err != nil || repo.called != 1 || got != repo.received || got.Kind != "income" || got.NecessityLevel != 0 ||
+		got.Description != "Salário" || got.Category != "Trabalho" || !got.OccurredAt.Equal(input.OccurredAt) {
+		t.Fatalf("criação enriquecida inesperada: got=%+v err=%v repo=%+v", got, err, repo)
+	}
+}
+
+func TestServiceCreateRejectsPartialEnrichment(t *testing.T) {
+	repo := &repositoryStub{}
+	_, err := transaction.NewService(repo).Create(context.Background(), transaction.CreateInput{
+		UserID: uuid.New(), AmountMinor: 100, NecessityLevel: 1, Description: "Compra",
+	})
+	if !errors.Is(err, transaction.ErrInvalidKind) || repo.called != 0 {
+		t.Fatalf("entrada parcialmente enriquecida deveria falhar: %v", err)
 	}
 }
 

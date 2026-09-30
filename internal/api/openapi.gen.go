@@ -20,6 +20,63 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AdjustGoalRequestDirection.
+const (
+	Deposit  AdjustGoalRequestDirection = "deposit"
+	Withdraw AdjustGoalRequestDirection = "withdraw"
+)
+
+// Valid indicates whether the value is a known member of the AdjustGoalRequestDirection enum.
+func (e AdjustGoalRequestDirection) Valid() bool {
+	switch e {
+	case Deposit:
+		return true
+	case Withdraw:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateTransactionRequestKind.
+const (
+	CreateTransactionRequestKindExpense CreateTransactionRequestKind = "expense"
+	CreateTransactionRequestKindIncome  CreateTransactionRequestKind = "income"
+)
+
+// Valid indicates whether the value is a known member of the CreateTransactionRequestKind enum.
+func (e CreateTransactionRequestKind) Valid() bool {
+	switch e {
+	case CreateTransactionRequestKindExpense:
+		return true
+	case CreateTransactionRequestKindIncome:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateTransactionRequestPaymentMethod.
+const (
+	CreateTransactionRequestPaymentMethodCard  CreateTransactionRequestPaymentMethod = "card"
+	CreateTransactionRequestPaymentMethodDebit CreateTransactionRequestPaymentMethod = "debit"
+	CreateTransactionRequestPaymentMethodPix   CreateTransactionRequestPaymentMethod = "pix"
+)
+
+// Valid indicates whether the value is a known member of the CreateTransactionRequestPaymentMethod enum.
+func (e CreateTransactionRequestPaymentMethod) Valid() bool {
+	switch e {
+	case CreateTransactionRequestPaymentMethodCard:
+		return true
+	case CreateTransactionRequestPaymentMethodDebit:
+		return true
+	case CreateTransactionRequestPaymentMethodPix:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionResponseTokenType.
 const (
 	Bearer SessionResponseTokenType = "Bearer"
@@ -35,18 +92,90 @@ func (e SessionResponseTokenType) Valid() bool {
 	}
 }
 
+// Defines values for TransactionResponseKind.
+const (
+	TransactionResponseKindExpense TransactionResponseKind = "expense"
+	TransactionResponseKindIncome  TransactionResponseKind = "income"
+)
+
+// Valid indicates whether the value is a known member of the TransactionResponseKind enum.
+func (e TransactionResponseKind) Valid() bool {
+	switch e {
+	case TransactionResponseKindExpense:
+		return true
+	case TransactionResponseKindIncome:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TransactionResponsePaymentMethod.
+const (
+	TransactionResponsePaymentMethodCard  TransactionResponsePaymentMethod = "card"
+	TransactionResponsePaymentMethodDebit TransactionResponsePaymentMethod = "debit"
+	TransactionResponsePaymentMethodPix   TransactionResponsePaymentMethod = "pix"
+)
+
+// Valid indicates whether the value is a known member of the TransactionResponsePaymentMethod enum.
+func (e TransactionResponsePaymentMethod) Valid() bool {
+	switch e {
+	case TransactionResponsePaymentMethodCard:
+		return true
+	case TransactionResponsePaymentMethodDebit:
+		return true
+	case TransactionResponsePaymentMethodPix:
+		return true
+	default:
+		return false
+	}
+}
+
+// AdjustGoalRequest defines model for AdjustGoalRequest.
+type AdjustGoalRequest struct {
+	AmountMinor int64                      `json:"amountMinor"`
+	Direction   AdjustGoalRequestDirection `json:"direction"`
+}
+
+// AdjustGoalRequestDirection defines model for AdjustGoalRequest.Direction.
+type AdjustGoalRequestDirection string
+
+// CategoryTotalResponse defines model for CategoryTotalResponse.
+type CategoryTotalResponse struct {
+	Category   string `json:"category"`
+	TotalMinor int64  `json:"totalMinor"`
+}
+
+// CreateGoalRequest defines model for CreateGoalRequest.
+type CreateGoalRequest struct {
+	Name        string `json:"name"`
+	TargetMinor int64  `json:"targetMinor"`
+}
+
 // CreateSessionRequest defines model for CreateSessionRequest.
 type CreateSessionRequest struct {
 	Email    openapi_types.Email `json:"email"`
 	Password *string             `json:"password,omitempty"`
 }
 
-// CreateTransactionRequest defines model for CreateTransactionRequest.
+// CreateTransactionRequest O formato antigo com apenas amountMinor e necessityLevel permanece como despesa legada. Novos lançamentos exigem kind, description, category, occurredAt e installments; despesas exigem paymentMethod e necessityLevel. Receita não aceita necessityLevel ou paymentMethod e deve ter uma parcela. Parcelamento é apenas um atributo informativo; não cria faturas ou cobranças.
 type CreateTransactionRequest struct {
-	// AmountMinor Valor em unidades monetárias menores (ex. centavos). Moeda a ser definida no contrato do produto.
-	AmountMinor    int64 `json:"amountMinor"`
-	NecessityLevel int   `json:"necessityLevel"`
+	// AmountMinor Valor positivo em unidades menores. A moeda do produto ainda precisa ser definida; não misturar moedas.
+	AmountMinor    int64                                  `json:"amountMinor"`
+	Category       *string                                `json:"category,omitempty"`
+	Description    *string                                `json:"description,omitempty"`
+	Installments   *int                                   `json:"installments,omitempty"`
+	Kind           *CreateTransactionRequestKind          `json:"kind,omitempty"`
+	NecessityLevel *int                                   `json:"necessityLevel,omitempty"`
+	OccurredAt     *time.Time                             `json:"occurredAt,omitempty"`
+	PaymentMethod  *CreateTransactionRequestPaymentMethod `json:"paymentMethod,omitempty"`
 }
+
+// CreateTransactionRequestKind defines model for CreateTransactionRequest.Kind.
+type CreateTransactionRequestKind string
+
+// CreateTransactionRequestPaymentMethod defines model for CreateTransactionRequest.PaymentMethod.
+type CreateTransactionRequestPaymentMethod string
 
 // CreateUserRequest defines model for CreateUserRequest.
 type CreateUserRequest struct {
@@ -60,16 +189,47 @@ type CreateUserRequest struct {
 	Password *string `json:"password,omitempty"`
 }
 
+// DashboardResponse defines model for DashboardResponse.
+type DashboardResponse struct {
+	ExpenseMinor       int64                   `json:"expenseMinor"`
+	ExpensesByCategory []CategoryTotalResponse `json:"expensesByCategory"`
+	GoalsSavedMinor    int64                   `json:"goalsSavedMinor"`
+	GoalsTargetMinor   int64                   `json:"goalsTargetMinor"`
+	IncomeMinor        int64                   `json:"incomeMinor"`
+
+	// Month Example: 2026-09
+	Month              string                `json:"month"`
+	NetTrackedMinor    int64                 `json:"netTrackedMinor"`
+	RecentTransactions []TransactionResponse `json:"recentTransactions"`
+}
+
 // ErrorResponse defines model for ErrorResponse.
 type ErrorResponse struct {
 	// Message Example: Dados de entrada inválidos
 	Message string `json:"message"`
 }
 
+// GoalResponse defines model for GoalResponse.
+type GoalResponse struct {
+	CreatedAt   time.Time          `json:"createdAt"`
+	Id          openapi_types.UUID `json:"id"`
+	Name        string             `json:"name"`
+	SavedMinor  int64              `json:"savedMinor"`
+	TargetMinor int64              `json:"targetMinor"`
+	UpdatedAt   time.Time          `json:"updatedAt"`
+}
+
 // HealthResponse defines model for HealthResponse.
 type HealthResponse struct {
 	// Status Example: ok
 	Status string `json:"status"`
+}
+
+// ListGoalsResponse defines model for ListGoalsResponse.
+type ListGoalsResponse struct {
+	Data   []GoalResponse `json:"data"`
+	Limit  int            `json:"limit"`
+	Offset int            `json:"offset"`
 }
 
 // ListTransactionsResponse defines model for ListTransactionsResponse.
@@ -100,11 +260,25 @@ type SessionResponseTokenType string
 
 // TransactionResponse defines model for TransactionResponse.
 type TransactionResponse struct {
-	AmountMinor    int64              `json:"amountMinor"`
-	CreatedAt      time.Time          `json:"createdAt"`
-	Id             openapi_types.UUID `json:"id"`
-	NecessityLevel int                `json:"necessityLevel"`
+	AmountMinor  int64                   `json:"amountMinor"`
+	Category     string                  `json:"category"`
+	CreatedAt    time.Time               `json:"createdAt"`
+	Description  string                  `json:"description"`
+	Id           openapi_types.UUID      `json:"id"`
+	Installments int                     `json:"installments"`
+	Kind         TransactionResponseKind `json:"kind"`
+
+	// NecessityLevel Apenas despesas.
+	NecessityLevel *int                              `json:"necessityLevel,omitempty"`
+	OccurredAt     time.Time                         `json:"occurredAt"`
+	PaymentMethod  *TransactionResponsePaymentMethod `json:"paymentMethod,omitempty"`
 }
+
+// TransactionResponseKind defines model for TransactionResponse.Kind.
+type TransactionResponseKind string
+
+// TransactionResponsePaymentMethod defines model for TransactionResponse.PaymentMethod.
+type TransactionResponsePaymentMethod string
 
 // UpdateUserRequest defines model for UpdateUserRequest.
 type UpdateUserRequest struct {
@@ -128,6 +302,18 @@ type UserResponse struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// GetDashboardParams defines parameters for GetDashboard.
+type GetDashboardParams struct {
+	// Month Mês em UTC, padrão é o mês atual.
+	Month *string `form:"month,omitempty" json:"month,omitempty"`
+}
+
+// ListGoalsParams defines parameters for ListGoals.
+type ListGoalsParams struct {
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // ListTransactionsParams defines parameters for ListTransactions.
 type ListTransactionsParams struct {
 	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
@@ -143,6 +329,12 @@ type ListUsersParams struct {
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// CreateGoalJSONRequestBody defines body for CreateGoal for application/json ContentType.
+type CreateGoalJSONRequestBody = CreateGoalRequest
+
+// AdjustGoalJSONRequestBody defines body for AdjustGoal for application/json ContentType.
+type AdjustGoalJSONRequestBody = AdjustGoalRequest
+
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = CreateSessionRequest
 
@@ -157,6 +349,18 @@ type UpdateUserJSONRequestBody = UpdateUserRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// GetDashboard Resumo dos lançamentos rastreados do titular
+	// (GET /dashboard)
+	GetDashboard(c *gin.Context, params GetDashboardParams)
+	// ListGoals Lista metas virtuais do titular
+	// (GET /goals)
+	ListGoals(c *gin.Context, params ListGoalsParams)
+	// CreateGoal Cria uma meta com saldo virtual inicial zero
+	// (POST /goals)
+	CreateGoal(c *gin.Context)
+	// AdjustGoal Ajusta saldo virtual, sem transferir dinheiro
+	// (POST /goals/{id}/allocations)
+	AdjustGoal(c *gin.Context, id openapi_types.UUID)
 	// GetHealth Verifica a saúde da aplicação
 	// (GET /health)
 	GetHealth(c *gin.Context)
@@ -169,7 +373,7 @@ type ServerInterface interface {
 	// CreateTransaction Cria uma transação para o titular autenticado
 	// (POST /transactions)
 	CreateTransaction(c *gin.Context)
-	// ListUsers Lista usuários com paginação
+	// ListUsers Consulta somente o perfil autenticado
 	// (GET /users)
 	ListUsers(c *gin.Context, params ListUsersParams)
 	// CreateUser Cadastra um usuário
@@ -188,6 +392,106 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(c *gin.Context)
+
+// GetDashboard operation middleware
+func (siw *ServerInterfaceWrapper) GetDashboard(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetDashboardParams
+
+	// ------------- Optional query parameter "month" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "month", c.Request.URL.Query(), &params.Month, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter month: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetDashboard(c, params)
+}
+
+// ListGoals operation middleware
+func (siw *ServerInterfaceWrapper) ListGoals(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListGoalsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", c.Request.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter offset: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListGoals(c, params)
+}
+
+// CreateGoal operation middleware
+func (siw *ServerInterfaceWrapper) CreateGoal(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateGoal(c)
+}
+
+// AdjustGoal operation middleware
+func (siw *ServerInterfaceWrapper) AdjustGoal(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.AdjustGoal(c, id)
+}
 
 // GetHealth operation middleware
 func (siw *ServerInterfaceWrapper) GetHealth(c *gin.Context) {
@@ -367,6 +671,10 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/sessions", wrapper.CreateSession)
 	router.GET(options.BaseURL+"/transactions", wrapper.ListTransactions)
 	router.POST(options.BaseURL+"/transactions", wrapper.CreateTransaction)
+	router.GET(options.BaseURL+"/dashboard", wrapper.GetDashboard)
+	router.GET(options.BaseURL+"/goals", wrapper.ListGoals)
+	router.POST(options.BaseURL+"/goals", wrapper.CreateGoal)
+	router.POST(options.BaseURL+"/goals/:id/allocations", wrapper.AdjustGoal)
 	router.GET(options.BaseURL+"/users", wrapper.ListUsers)
 	router.POST(options.BaseURL+"/users", wrapper.CreateUser)
 	router.PATCH(options.BaseURL+"/users/:id", wrapper.UpdateUser)
@@ -377,40 +685,57 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

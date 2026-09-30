@@ -17,7 +17,7 @@ func TestUpIsRepeatable(t *testing.T) {
 	if err := db.Raw("SELECT version, dirty FROM schema_migrations").Row().Scan(&version, &dirty); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 || dirty {
+	if version != 5 || dirty {
 		t.Fatalf("versão inesperada: %d, dirty=%v", version, dirty)
 	}
 	var count int
@@ -28,6 +28,9 @@ func TestUpIsRepeatable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Raw("SELECT count(*) FROM sessions").Row().Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Raw("SELECT count(*) FROM goals").Row().Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 }

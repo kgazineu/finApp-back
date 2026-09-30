@@ -172,7 +172,7 @@ func TestFinancialTransactionHandler(t *testing.T) {
 				if input != (transaction.CreateInput{UserID: owner, AmountMinor: 12345, NecessityLevel: 3}) {
 					t.Errorf("unexpected Create input: %+v", input)
 				}
-				return transaction.Transaction{ID: createdID, UserID: owner, AmountMinor: input.AmountMinor, NecessityLevel: input.NecessityLevel, CreatedAt: createdAt}, tt.createErr
+				return transaction.Transaction{ID: createdID, UserID: owner, AmountMinor: input.AmountMinor, NecessityLevel: input.NecessityLevel, Kind: "expense", Description: "Lançamento", Category: "Outros", Installments: 1, OccurredAt: createdAt, CreatedAt: createdAt}, tt.createErr
 			}}
 			response := financialRequest(t, newRouter(api.NewServer(nil, api.WithFinancialServices(sessions, transactions))), "/transactions", tt.body, tt.authHeader)
 			if response.Code != tt.status || authCalls != tt.authCalls || createCalls != tt.createCalls {
@@ -195,8 +195,122 @@ func TestFinancialTransactionHandler(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 				t.Fatal(err)
 			}
-			if len(body) != 4 || body["id"] != createdID.String() || body["amountMinor"] != float64(12345) || body["necessityLevel"] != float64(3) || body["createdAt"] != createdAt.Format(time.RFC3339) {
+			if len(body) != 9 || body["id"] != createdID.String() || body["amountMinor"] != float64(12345) || body["necessityLevel"] != float64(3) || body["kind"] != "expense" || body["description"] != "Lançamento" || body["category"] != "Outros" || body["installments"] != float64(1) || body["occurredAt"] != createdAt.Format(time.RFC3339) || body["createdAt"] != createdAt.Format(time.RFC3339) {
 				t.Errorf("unexpected public transaction response: %+v", body)
+			}
+		})
+	}
+}
+
+func TestCreateDetailedTransactions(t *testing.T) {
+	owner := uuid.New()
+	occurredAt := time.Date(2026, 9, 30, 15, 30, 0, 0, time.UTC)
+	createdAt := occurredAt.Add(time.Hour)
+	for _, tc := range []struct {
+		name, body string
+		input      transaction.CreateInput
+		result     transaction.Transaction
+		wantFields int
+	}{
+		{
+			name:       "income without expense fields",
+			body:       `{"amountMinor":75000,"kind":"income","description":" Salário ","category":" Trabalho ","installments":1,"occurredAt":"2026-09-30T15:30:00Z"}`,
+			input:      transaction.CreateInput{UserID: owner, AmountMinor: 75000, Kind: "income", KindProvided: true, Description: " Salário ", Category: " Trabalho ", Installments: 1, OccurredAt: occurredAt},
+			result:     transaction.Transaction{AmountMinor: 75000, Kind: "income", Description: "Salário", Category: "Trabalho", Installments: 1, OccurredAt: occurredAt, CreatedAt: createdAt},
+			wantFields: 8,
+		},
+		{
+			name:       "card expense with installments",
+			body:       `{"amountMinor":23599,"kind":"expense","description":"Notebook","category":"Tecnologia","paymentMethod":"card","installments":12,"necessityLevel":2,"occurredAt":"2026-09-30T15:30:00Z"}`,
+			input:      transaction.CreateInput{UserID: owner, AmountMinor: 23599, Kind: "expense", KindProvided: true, Description: "Notebook", Category: "Tecnologia", PaymentMethod: "card", Installments: 12, NecessityLevel: 2, OccurredAt: occurredAt},
+			result:     transaction.Transaction{AmountMinor: 23599, Kind: "expense", Description: "Notebook", Category: "Tecnologia", PaymentMethod: "card", Installments: 12, NecessityLevel: 2, OccurredAt: occurredAt, CreatedAt: createdAt},
+			wantFields: 10,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := uuid.New()
+			calls := 0
+			sessions := financialSessionStub{authenticate: func(_ context.Context, token string) (uuid.UUID, error) {
+				if token != "secret" {
+					t.Errorf("unexpected token: %q", token)
+				}
+				return owner, nil
+			}}
+			txs := financialTransactionStub{create: func(_ context.Context, input transaction.CreateInput) (transaction.Transaction, error) {
+				calls++
+				if input != tc.input {
+					t.Errorf("Create input: %+v, want %+v", input, tc.input)
+				}
+				result := tc.result
+				result.ID, result.UserID = id, owner
+				return result, nil
+			}}
+			response := financialRequest(t, newRouter(api.NewServer(nil, api.WithFinancialServices(sessions, txs))), "/transactions", tc.body, "Bearer secret")
+			if response.Code != http.StatusCreated || calls != 1 {
+				t.Fatalf("status=%d Create calls=%d: %s", response.Code, calls, response.Body.String())
+			}
+			var body map[string]any
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if len(body) != tc.wantFields || body["id"] != id.String() || body["amountMinor"] != float64(tc.result.AmountMinor) || body["kind"] != tc.result.Kind || body["description"] != tc.result.Description || body["category"] != tc.result.Category || body["installments"] != float64(tc.result.Installments) || body["occurredAt"] != occurredAt.Format(time.RFC3339) || body["createdAt"] != createdAt.Format(time.RFC3339) {
+				t.Errorf("unexpected public response: %+v", body)
+			}
+			if tc.result.Kind == "income" {
+				if _, exists := body["necessityLevel"]; exists {
+					t.Error("income must omit necessityLevel")
+				}
+				if _, exists := body["paymentMethod"]; exists {
+					t.Error("income must omit paymentMethod")
+				}
+			} else if body["necessityLevel"] != float64(2) || body["paymentMethod"] != "card" {
+				t.Errorf("missing expense fields: %+v", body)
+			}
+			if _, exists := body["userId"]; exists {
+				t.Error("owner ID exposed in response")
+			}
+		})
+	}
+}
+
+func TestCreateDetailedTransactionsRejectsInvalidInput(t *testing.T) {
+	const base = `"amountMinor":10,"kind":"expense","description":"Compra","category":"Casa","paymentMethod":"pix","installments":1,"necessityLevel":3,"occurredAt":"2026-09-30T15:30:00Z"`
+	for _, tc := range []struct{ name, body string }{
+		{"missing kind with details", `{"amountMinor":10,"description":"Compra","category":"Casa","paymentMethod":"pix","installments":1,"necessityLevel":3,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"empty explicit kind", `{"amountMinor":10,"kind":""}`},
+		{"unknown kind", `{"amountMinor":10,"kind":"transfer"}`},
+		{"missing description", `{"amountMinor":10,"kind":"income","category":"Salário","installments":1,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"blank category", `{"amountMinor":10,"kind":"income","description":"Salário","category":"  ","installments":1,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"description too long", `{"amountMinor":10,"kind":"income","description":"` + strings.Repeat("a", 201) + `","category":"Salário","installments":1,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"category too long", `{"amountMinor":10,"kind":"income","description":"Salário","category":"` + strings.Repeat("a", 81) + `","installments":1,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"income necessity", `{"amountMinor":10,"kind":"income","description":"Salário","category":"Trabalho","installments":1,"necessityLevel":2,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"income explicit zero necessity", `{"amountMinor":10,"kind":"income","description":"Salário","category":"Trabalho","installments":1,"necessityLevel":0,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"income payment method", `{"amountMinor":10,"kind":"income","description":"Salário","category":"Trabalho","paymentMethod":"pix","installments":1,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"income installments", `{"amountMinor":10,"kind":"income","description":"Salário","category":"Trabalho","installments":2,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"expense missing necessity", `{"amountMinor":10,"kind":"expense","description":"Compra","category":"Casa","paymentMethod":"pix","installments":1,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"expense missing payment", `{"amountMinor":10,"kind":"expense","description":"Compra","category":"Casa","installments":1,"necessityLevel":3,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"invalid payment", `{"amountMinor":10,"kind":"expense","description":"Compra","category":"Casa","paymentMethod":"cash","installments":1,"necessityLevel":3,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"pix installments", `{"amountMinor":10,"kind":"expense","description":"Compra","category":"Casa","paymentMethod":"pix","installments":2,"necessityLevel":3,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"zero installments", `{"amountMinor":10,"kind":"expense","description":"Compra","category":"Casa","paymentMethod":"card","installments":0,"necessityLevel":3,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"too many installments", `{"amountMinor":10,"kind":"expense","description":"Compra","category":"Casa","paymentMethod":"card","installments":61,"necessityLevel":3,"occurredAt":"2026-09-30T15:30:00Z"}`},
+		{"missing date", `{"amountMinor":10,"kind":"expense","description":"Compra","category":"Casa","paymentMethod":"pix","installments":1,"necessityLevel":3}`},
+		{"invalid date", `{"amountMinor":10,"kind":"expense","description":"Compra","category":"Casa","paymentMethod":"pix","installments":1,"necessityLevel":3,"occurredAt":"yesterday"}`},
+		{"unknown field", `{` + base + `,"userId":"` + uuid.NewString() + `"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			sessions := financialSessionStub{authenticate: func(context.Context, string) (uuid.UUID, error) { return uuid.New(), nil }}
+			txs := financialTransactionStub{create: func(context.Context, transaction.CreateInput) (transaction.Transaction, error) {
+				calls++
+				return transaction.Transaction{}, nil
+			}}
+			response := financialRequest(t, newRouter(api.NewServer(nil, api.WithFinancialServices(sessions, txs))), "/transactions", tc.body, "Bearer secret")
+			if response.Code != http.StatusBadRequest || calls != 0 {
+				t.Fatalf("status=%d Create calls=%d: %s", response.Code, calls, response.Body.String())
+			}
+			var body api.ErrorResponse
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Message == "" {
+				t.Fatalf("expected JSON error: %s (%v)", response.Body.String(), err)
 			}
 		})
 	}

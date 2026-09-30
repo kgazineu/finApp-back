@@ -18,6 +18,24 @@ func (s *Server) UpdateUser(
 	c *gin.Context,
 	id openapi_types.UUID,
 ) {
+	if s.sessions == nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Message: "Não foi possível atualizar o usuário"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+	userID, ok := s.sessionUser(c, ctx)
+	if !ok {
+		return
+	}
+	if id != userID {
+		c.JSON(http.StatusNotFound, ErrorResponse{Message: user.ErrUserNotFound.Error()})
+		return
+	}
+	if s.users == nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Message: "Não foi possível atualizar o usuário"})
+		return
+	}
 	mediaType, _, err := mime.ParseMediaType(
 		c.GetHeader("Content-Type"),
 	)
@@ -51,16 +69,6 @@ func (s *Server) UpdateUser(
 		return
 	}
 
-	if s.users == nil {
-		c.JSON(
-			http.StatusInternalServerError,
-			ErrorResponse{
-				Message: "Não foi possível atualizar o usuário",
-			},
-		)
-		return
-	}
-
 	var email *string
 
 	if request.Email != nil {
@@ -73,12 +81,6 @@ func (s *Server) UpdateUser(
 		Name:  request.Name,
 		Email: email,
 	}
-
-	ctx, cancel := context.WithTimeout(
-		c.Request.Context(),
-		10*time.Second,
-	)
-	defer cancel()
 
 	updated, err := s.users.Update(ctx, input)
 	if err != nil {

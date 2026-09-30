@@ -10,6 +10,8 @@ type Server struct {
 	users        UserService
 	sessions     SessionService
 	transactions TransactionService
+	goals        GoalService
+	overview     OverviewService
 }
 
 var _ ServerInterface = (*Server)(nil)
@@ -21,6 +23,14 @@ func WithFinancialServices(sessions SessionService, transactions TransactionServ
 		s.sessions = sessions
 		s.transactions = transactions
 	}
+}
+
+func WithGoalService(goals GoalService) ServerOption {
+	return func(s *Server) { s.goals = goals }
+}
+
+func WithOverviewService(overview OverviewService) ServerOption {
+	return func(s *Server) { s.overview = overview }
 }
 
 func NewServer(users UserService, options ...ServerOption) *Server {

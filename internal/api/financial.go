@@ -79,25 +79,65 @@ func (s *Server) CreateTransaction(c *gin.Context) {
 	if !decodeFinancialJSON(c, &request) {
 		return
 	}
-	if request.AmountMinor <= 0 || request.NecessityLevel < 1 || request.NecessityLevel > 5 {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Message: "Valor ou nível de necessidade inválido"})
+	input := transaction.CreateInput{UserID: userID, AmountMinor: request.AmountMinor}
+	if request.Kind != nil {
+		input.Kind, input.KindProvided = string(*request.Kind), true
+	}
+	if request.NecessityLevel != nil {
+		input.NecessityLevel = *request.NecessityLevel
+	}
+	if request.Description != nil {
+		input.Description = *request.Description
+	}
+	if request.Category != nil {
+		input.Category = *request.Category
+	}
+	if request.PaymentMethod != nil {
+		input.PaymentMethod = string(*request.PaymentMethod)
+	}
+	if request.Installments != nil {
+		input.Installments = *request.Installments
+	}
+	if request.OccurredAt != nil {
+		input.OccurredAt = *request.OccurredAt
+	}
+	if input.Kind == "income" && request.NecessityLevel != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Message: transaction.ErrInvalidNecessityLevel.Error()})
 		return
 	}
-	created, err := s.transactions.Create(ctx, transaction.CreateInput{
-		UserID: userID, AmountMinor: request.AmountMinor, NecessityLevel: request.NecessityLevel,
-	})
+	if _, err := transaction.NewDetailed(input); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Message: err.Error()})
+		return
+	}
+	created, err := s.transactions.Create(ctx, input)
 	if err != nil {
-		if errors.Is(err, transaction.ErrInvalidAmount) || errors.Is(err, transaction.ErrInvalidNecessityLevel) || errors.Is(err, transaction.ErrInvalidUserID) {
+		if errors.Is(err, transaction.ErrInvalidAmount) || errors.Is(err, transaction.ErrInvalidNecessityLevel) ||
+			errors.Is(err, transaction.ErrInvalidKind) || errors.Is(err, transaction.ErrInvalidDescription) ||
+			errors.Is(err, transaction.ErrInvalidCategory) || errors.Is(err, transaction.ErrInvalidPaymentMethod) ||
+			errors.Is(err, transaction.ErrInvalidInstallments) || errors.Is(err, transaction.ErrInvalidOccurredAt) {
 			c.JSON(http.StatusBadRequest, ErrorResponse{Message: err.Error()})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Message: "Não foi possível criar a transação"})
 		return
 	}
-	c.JSON(http.StatusCreated, TransactionResponse{
-		Id: created.ID, AmountMinor: created.AmountMinor,
-		NecessityLevel: created.NecessityLevel, CreatedAt: created.CreatedAt,
-	})
+	c.JSON(http.StatusCreated, transactionResponse(created))
+}
+
+func transactionResponse(item transaction.Transaction) TransactionResponse {
+	response := TransactionResponse{
+		Id: item.ID, AmountMinor: item.AmountMinor, Kind: TransactionResponseKind(item.Kind),
+		Description: item.Description, Category: item.Category, Installments: item.Installments,
+		OccurredAt: item.OccurredAt, CreatedAt: item.CreatedAt,
+	}
+	if item.Kind == "expense" {
+		response.NecessityLevel = &item.NecessityLevel
+	}
+	if item.PaymentMethod != "" {
+		payment := TransactionResponsePaymentMethod(item.PaymentMethod)
+		response.PaymentMethod = &payment
+	}
+	return response
 }
 
 func (s *Server) sessionUser(c *gin.Context, ctx context.Context) (uuid.UUID, bool) {

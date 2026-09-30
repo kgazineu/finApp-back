@@ -24,6 +24,10 @@ type userCreatorStub struct {
 	err      error
 }
 
+func (s *userCreatorStub) Get(context.Context, uuid.UUID) (user.User, error) {
+	panic("Get não deveria ser chamado nos testes de criação")
+}
+
 func (s *userCreatorStub) List(context.Context, user.ListInput) ([]user.User, error) {
 	panic("List não deveria ser chamado nos testes de criação")
 }

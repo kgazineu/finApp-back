@@ -11,7 +11,7 @@ func (r *TransactionRepository) List(ctx context.Context, input transaction.List
 	var records []transactionModel
 	err := r.db.WithContext(ctx).
 		Where("user_id = ?", input.UserID).
-		Order("created_at DESC").Order("id DESC").
+		Order("occurred_at DESC").Order("id DESC").
 		Limit(input.Limit).Offset(input.Offset).
 		Find(&records).Error
 	if err != nil {
@@ -19,10 +19,7 @@ func (r *TransactionRepository) List(ctx context.Context, input transaction.List
 	}
 	items := make([]transaction.Transaction, 0, len(records))
 	for _, record := range records {
-		items = append(items, transaction.Transaction{
-			ID: record.ID, UserID: record.UserID, AmountMinor: record.AmountMinor,
-			NecessityLevel: record.NecessityLevel, CreatedAt: record.CreatedAt,
-		})
+		items = append(items, record.transaction())
 	}
 	return items, nil
 }

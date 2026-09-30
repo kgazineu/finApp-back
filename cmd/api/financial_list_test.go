@@ -55,7 +55,7 @@ func TestListTransactionsScopesPaginationAndResponse(t *testing.T) {
 		if input.Offset == 1 {
 			return nil, nil
 		}
-		return []transaction.Transaction{{ID: id, UserID: owner, AmountMinor: 420, NecessityLevel: 2, CreatedAt: now}}, nil
+		return []transaction.Transaction{{ID: id, UserID: owner, AmountMinor: 420, NecessityLevel: 2, Kind: "expense", Description: "Supermercado", Category: "Alimentação", PaymentMethod: "pix", Installments: 1, OccurredAt: now, CreatedAt: now}}, nil
 	}}
 	router := newRouter(api.NewServer(nil, api.WithFinancialServices(sessions, txs)))
 	for _, tc := range []struct {
@@ -85,7 +85,7 @@ func TestListTransactionsScopesPaginationAndResponse(t *testing.T) {
 		if body.Data == nil || len(body.Data) != tc.wantEntries || body.Limit != tc.wantLimit || body.Offset != tc.wantOffset {
 			t.Fatalf("página incorreta: %+v", body)
 		}
-		if tc.wantEntries == 1 && (len(body.Data[0]) != 4 || body.Data[0]["id"] != id.String() || body.Data[0]["amountMinor"] != float64(420)) {
+		if tc.wantEntries == 1 && (len(body.Data[0]) != 10 || body.Data[0]["id"] != id.String() || body.Data[0]["amountMinor"] != float64(420) || body.Data[0]["description"] != "Supermercado" || body.Data[0]["paymentMethod"] != "pix") {
 			t.Errorf("resposta pública incorreta: %+v", body.Data[0])
 		}
 		got := inputs[len(inputs)-1]
@@ -118,5 +118,84 @@ func TestListTransactionsRejectsInvalidPaginationAndHandlesFailure(t *testing.T)
 	router.ServeHTTP(response, req)
 	if response.Code != http.StatusInternalServerError || calls != 1 || response.Body.String() == "" {
 		t.Fatalf("falha de banco não propagada: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestListDetailedTransactionsResponseAndOwner(t *testing.T) {
+	owner := uuid.New()
+	otherOwner := uuid.New()
+	occurredAt := time.Date(2026, 9, 30, 15, 30, 0, 0, time.UTC)
+	incomeID, expenseID := uuid.New(), uuid.New()
+	items := []transaction.Transaction{
+		{ID: incomeID, UserID: owner, AmountMinor: 5000, Kind: "income", Description: "Salário", Category: "Trabalho", Installments: 1, OccurredAt: occurredAt, CreatedAt: occurredAt},
+		{ID: expenseID, UserID: owner, AmountMinor: 1200, Kind: "expense", Description: "Compra", Category: "Casa", PaymentMethod: "debit", Installments: 1, NecessityLevel: 4, OccurredAt: occurredAt, CreatedAt: occurredAt},
+	}
+	calls := 0
+	sessions := financialSessionStub{authenticate: func(_ context.Context, token string) (uuid.UUID, error) {
+		if token == "other" {
+			return otherOwner, nil
+		}
+		return owner, nil
+	}}
+	txs := financialTransactionStub{list: func(_ context.Context, input transaction.ListInput) ([]transaction.Transaction, error) {
+		calls++
+		if input.Limit != 20 || input.Offset != 0 {
+			t.Errorf("unexpected pagination: %+v", input)
+		}
+		if input.UserID == otherOwner {
+			return nil, nil
+		}
+		if input.UserID != owner {
+			t.Errorf("wrong owner: %+v", input)
+		}
+		return items, nil
+	}}
+	router := newRouter(api.NewServer(nil, api.WithFinancialServices(sessions, txs)))
+	for _, tc := range []struct {
+		token string
+		want  int
+	}{{"first", 2}, {"other", 0}} {
+		request := httptest.NewRequest(http.MethodGet, "/transactions", nil)
+		request.Header.Set("Authorization", "Bearer "+tc.token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("status=%d: %s", response.Code, response.Body.String())
+		}
+		var page struct {
+			Data   []map[string]any `json:"data"`
+			Limit  int              `json:"limit"`
+			Offset int              `json:"offset"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
+			t.Fatal(err)
+		}
+		if page.Data == nil || len(page.Data) != tc.want || page.Limit != 20 || page.Offset != 0 {
+			t.Fatalf("unexpected page for %s: %+v", tc.token, page)
+		}
+		if tc.want == 0 {
+			continue
+		}
+		income, expense := page.Data[0], page.Data[1]
+		if len(income) != 8 || income["id"] != incomeID.String() || income["kind"] != "income" || income["amountMinor"] != float64(5000) || income["description"] != "Salário" || income["category"] != "Trabalho" || income["installments"] != float64(1) || income["occurredAt"] != occurredAt.Format(time.RFC3339) || income["createdAt"] != occurredAt.Format(time.RFC3339) {
+			t.Errorf("unexpected income: %+v", income)
+		}
+		if _, ok := income["necessityLevel"]; ok {
+			t.Errorf("income exposed necessityLevel: %+v", income)
+		}
+		if _, ok := income["paymentMethod"]; ok {
+			t.Errorf("income exposed paymentMethod: %+v", income)
+		}
+		if len(expense) != 10 || expense["id"] != expenseID.String() || expense["kind"] != "expense" || expense["amountMinor"] != float64(1200) || expense["description"] != "Compra" || expense["category"] != "Casa" || expense["paymentMethod"] != "debit" || expense["installments"] != float64(1) || expense["necessityLevel"] != float64(4) || expense["occurredAt"] != occurredAt.Format(time.RFC3339) || expense["createdAt"] != occurredAt.Format(time.RFC3339) {
+			t.Errorf("unexpected expense: %+v", expense)
+		}
+		for _, item := range page.Data {
+			if _, ok := item["userId"]; ok {
+				t.Errorf("owner ID exposed: %+v", item)
+			}
+		}
+	}
+	if calls != 2 {
+		t.Errorf("List called %d times, want 2", calls)
 	}
 }

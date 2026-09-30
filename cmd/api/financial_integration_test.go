@@ -186,6 +186,138 @@ func TestFinancialFlowEndToEnd(t *testing.T) {
 		}
 	}
 
+	// Exercise the enriched HTTP contract through the real service, migration and repository.
+	incomeDate := "2026-09-30T15:30:00Z"
+	ownerIDs := map[uuid.UUID]map[uuid.UUID]bool{
+		first.ID:  {created.ID: true},
+		second.ID: {otherTx.ID: true},
+	}
+	for _, tc := range []struct {
+		token, payload, kind, payment string
+		owner                         uuid.UUID
+		amount                        int64
+		level                         int
+	}{
+		{session.Token, `{"amountMinor":75000,"kind":"income","description":"Salário","category":"Trabalho","installments":1,"occurredAt":"` + incomeDate + `"}`, "income", "", first.ID, 75000, 0},
+		{session.Token, `{"amountMinor":23599,"kind":"expense","description":"Notebook","category":"Tecnologia","paymentMethod":"card","installments":12,"necessityLevel":2,"occurredAt":"` + incomeDate + `"}`, "expense", "card", first.ID, 23599, 2},
+		{otherSession.Token, `{"amountMinor":100,"kind":"expense","description":"Café","category":"Alimentação","paymentMethod":"pix","installments":1,"necessityLevel":1,"occurredAt":"` + incomeDate + `"}`, "expense", "pix", second.ID, 100, 1},
+	} {
+		status, body = post("/transactions", tc.payload, tc.token)
+		assertStatus(http.StatusCreated, status, body)
+		var response map[string]any
+		if err := json.Unmarshal(body, &response); err != nil {
+			t.Fatal(err)
+		}
+		idText, ok := response["id"].(string)
+		if !ok {
+			t.Fatalf("missing transaction ID: %s", body)
+		}
+		id, err := uuid.Parse(idText)
+		if err != nil || id == uuid.Nil || response["kind"] != tc.kind || response["amountMinor"] != float64(tc.amount) || response["occurredAt"] != incomeDate {
+			t.Fatalf("unexpected enriched response: %s (%v)", body, err)
+		}
+		if response["description"] == "" || response["category"] == "" || response["installments"] == nil {
+			t.Fatalf("enriched fields missing: %s", body)
+		}
+		if tc.kind == "income" {
+			if _, ok := response["necessityLevel"]; ok {
+				t.Fatalf("income exposed necessityLevel: %s", body)
+			}
+			if _, ok := response["paymentMethod"]; ok {
+				t.Fatalf("income exposed paymentMethod: %s", body)
+			}
+		} else if response["necessityLevel"] != float64(tc.level) || response["paymentMethod"] != tc.payment {
+			t.Fatalf("expense fields missing: %s", body)
+		}
+		var persisted struct {
+			Owner        uuid.UUID
+			Kind         string
+			Description  string
+			Category     string
+			Payment      *string
+			Installments int
+			Level        *int
+			OccurredAt   time.Time
+		}
+		if err := db.Raw("SELECT user_id, kind, description, category, payment_method, installments, necessity_level, occurred_at FROM transactions WHERE id = ?", id).Row().Scan(&persisted.Owner, &persisted.Kind, &persisted.Description, &persisted.Category, &persisted.Payment, &persisted.Installments, &persisted.Level, &persisted.OccurredAt); err != nil {
+			t.Fatal(err)
+		}
+		if persisted.Owner != tc.owner || persisted.Kind != tc.kind || persisted.Description != response["description"] || persisted.Category != response["category"] || persisted.Installments != int(response["installments"].(float64)) || persisted.OccurredAt.Format(time.RFC3339) != incomeDate {
+			t.Fatalf("incorrect persisted transaction: %+v / %s", persisted, body)
+		}
+		ownerIDs[tc.owner][id] = true
+		if tc.kind == "income" && (persisted.Level != nil || persisted.Payment != nil) {
+			t.Fatalf("income expense columns should be NULL: %+v", persisted)
+		}
+		if tc.kind == "expense" && (persisted.Level == nil || *persisted.Level != tc.level || persisted.Payment == nil || *persisted.Payment != tc.payment) {
+			t.Fatalf("expense columns not persisted: %+v", persisted)
+		}
+	}
+
+	for _, tc := range []struct {
+		token string
+		owner uuid.UUID
+		want  map[string]bool
+	}{
+		{session.Token, first.ID, map[string]bool{"income": true, "expense": true}},
+		{otherSession.Token, second.ID, map[string]bool{"expense": true}},
+	} {
+		request, err := http.NewRequest(http.MethodGet, server.URL+"/transactions?limit=10", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+tc.token)
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var page struct {
+			Data []map[string]any `json:"data"`
+		}
+		err = json.NewDecoder(response.Body).Decode(&page)
+		response.Body.Close()
+		if err != nil || response.StatusCode != http.StatusOK || len(page.Data) != len(ownerIDs[tc.owner]) {
+			t.Fatalf("unexpected owner page: %+v status=%d err=%v", page, response.StatusCode, err)
+		}
+		seen := make(map[string]bool)
+		for _, item := range page.Data {
+			idText, ok := item["id"].(string)
+			if !ok {
+				t.Fatalf("listed transaction missing ID: %+v", item)
+			}
+			id, err := uuid.Parse(idText)
+			if err != nil || !ownerIDs[tc.owner][id] {
+				t.Fatalf("transaction from another owner or unexpected ID: %+v", item)
+			}
+			if _, ok := item["userId"]; ok {
+				t.Fatalf("owner leaked: %+v", item)
+			}
+			if item["occurredAt"] == incomeDate {
+				seen[item["kind"].(string)] = true
+				if item["kind"] == "income" {
+					if _, ok := item["necessityLevel"]; ok {
+						t.Fatalf("listed income exposed necessityLevel: %+v", item)
+					}
+					if _, ok := item["paymentMethod"]; ok {
+						t.Fatalf("listed income exposed paymentMethod: %+v", item)
+					}
+				} else if item["paymentMethod"] == nil || item["necessityLevel"] == nil {
+					t.Fatalf("listed expense lost details: %+v", item)
+				}
+			}
+		}
+		if len(seen) != len(tc.want) {
+			t.Fatalf("missing detailed transactions: got %v want %v", seen, tc.want)
+		}
+	}
+	for _, invalid := range []string{
+		`{"amountMinor":10,"kind":"income","description":"Salário","category":"Trabalho","installments":1,"necessityLevel":2,"occurredAt":"2026-09-30T15:30:00Z"}`,
+		`{"amountMinor":10,"kind":"expense","description":"Compra","category":"Casa","paymentMethod":"pix","installments":2,"necessityLevel":3,"occurredAt":"2026-09-30T15:30:00Z"}`,
+	} {
+		status, body = post("/transactions", invalid, session.Token)
+		assertStatus(http.StatusBadRequest, status, body)
+	}
+
 	getStatus := func(token string) int {
 		t.Helper()
 		request, err := http.NewRequest(http.MethodGet, server.URL+"/transactions", nil)
@@ -220,7 +352,7 @@ func TestFinancialFlowEndToEnd(t *testing.T) {
 	if err := db.Raw("SELECT count(*) FROM transactions").Row().Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 2 {
+	if count != 5 {
 		t.Fatalf("rejected requests must not create transactions; got %d", count)
 	}
 }

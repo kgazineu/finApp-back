@@ -13,6 +13,8 @@ import (
 	"github.com/kgazineu/finApp-back/internal/api"
 	"github.com/kgazineu/finApp-back/internal/auth"
 	"github.com/kgazineu/finApp-back/internal/config"
+	"github.com/kgazineu/finApp-back/internal/goal"
+	"github.com/kgazineu/finApp-back/internal/overview"
 	"github.com/kgazineu/finApp-back/internal/password"
 	"github.com/kgazineu/finApp-back/internal/postgres"
 	"github.com/kgazineu/finApp-back/internal/transaction"
@@ -70,9 +72,11 @@ func run(ctx context.Context) error {
 	users := user.NewService(repo, password.Hasher{})
 	sessions := auth.NewService(postgres.NewAuthRepository(db), password.Hasher{})
 	transactions := transaction.NewService(postgres.NewTransactionRepository(db))
+	goals := goal.NewService(postgres.NewGoalRepository(db))
+	dashboard := overview.NewService(postgres.NewOverviewRepository(db))
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           newRouter(api.NewServer(users, api.WithFinancialServices(sessions, transactions))),
+		Handler:           newRouter(api.NewServer(users, api.WithFinancialServices(sessions, transactions), api.WithGoalService(goals), api.WithOverviewService(dashboard))),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

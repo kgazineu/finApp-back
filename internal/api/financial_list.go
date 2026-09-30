@@ -50,10 +50,7 @@ func (s *Server) ListTransactions(c *gin.Context, params ListTransactionsParams)
 	}
 	data := make([]TransactionResponse, 0, len(items))
 	for _, item := range items {
-		data = append(data, TransactionResponse{
-			Id: item.ID, AmountMinor: item.AmountMinor,
-			NecessityLevel: item.NecessityLevel, CreatedAt: item.CreatedAt.UTC(),
-		})
+		data = append(data, transactionResponse(item))
 	}
 	c.JSON(http.StatusOK, ListTransactionsResponse{Data: data, Limit: input.Limit, Offset: input.Offset})
 }
