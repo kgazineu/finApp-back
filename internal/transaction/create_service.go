@@ -15,6 +15,7 @@ type CreateInput struct {
 
 type Repository interface {
 	Create(ctx context.Context, tx Transaction) (Transaction, error)
+	List(ctx context.Context, input ListInput) ([]Transaction, error)
 }
 
 type Service struct {
