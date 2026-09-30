@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"time"
@@ -12,6 +13,14 @@ import (
 	"github.com/kgazineu/finApp-back/internal/user"
 	"gorm.io/gorm"
 )
+
+// sessionHashValue prevents GORM from expanding byte slices into multiple SQL bind parameters
+// when the placeholder follows an opening parenthesis (e.g. INSERT ... VALUES (?)).
+type sessionHashValue [32]byte
+
+func (hash sessionHashValue) Value() (driver.Value, error) {
+	return hash[:], nil
+}
 
 type AuthRepository struct {
 	db *gorm.DB
@@ -41,7 +50,7 @@ func (r *AuthRepository) FindByEmail(ctx context.Context, email string) (user.Us
 func (r *AuthRepository) SaveSession(ctx context.Context, tokenHash [32]byte, userID uuid.UUID, expiresAt time.Time) error {
 	err := r.db.WithContext(ctx).Exec(
 		"INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
-		tokenHash[:], userID, expiresAt,
+		sessionHashValue(tokenHash), userID, expiresAt,
 	).Error
 	if err != nil {
 		return fmt.Errorf("save session: %w", err)
@@ -53,7 +62,7 @@ func (r *AuthRepository) FindSession(ctx context.Context, tokenHash [32]byte) (u
 	var userID uuid.UUID
 	var expiresAt time.Time
 	err := r.db.WithContext(ctx).Raw(
-		"SELECT user_id, expires_at FROM sessions WHERE token_hash = ?", tokenHash[:],
+		"SELECT user_id, expires_at FROM sessions WHERE token_hash = ?", sessionHashValue(tokenHash),
 	).Row().Scan(&userID, &expiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return uuid.Nil, time.Time{}, auth.ErrInvalidSession
