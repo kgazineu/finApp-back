@@ -17,7 +17,38 @@ var files embed.FS
 
 // Up applies pending migrations before the HTTP server starts.
 // golang-migrate tracks versions and locks the database against concurrent migrations.
-func Up(dsn string) (err error) {
+func Up(dsn string) error {
+	return run(dsn, "aplicar migrations", func(m *migrate.Migrate) error { return m.Up() })
+}
+
+// Down reverts the last n applied migrations.
+func Down(dsn string, n int) error {
+	if n < 1 {
+		return errors.New("a quantidade de migrations para desfazer deve ser pelo menos 1")
+	}
+	return run(dsn, "desfazer migrations", func(m *migrate.Migrate) error { return m.Steps(-n) })
+}
+
+// Force sets the version without running SQL, to recover from a migration that failed
+// midway (dirty). Fix the database by hand first, then force the last version that is correct.
+func Force(dsn string, version int) error {
+	return run(dsn, "forçar versão", func(m *migrate.Migrate) error { return m.Force(version) })
+}
+
+// Version reports the applied version (0 = none) and whether the last migration failed midway.
+func Version(dsn string) (version uint, dirty bool, err error) {
+	err = run(dsn, "ler versão", func(m *migrate.Migrate) error {
+		v, d, verr := m.Version()
+		if errors.Is(verr, migrate.ErrNilVersion) {
+			return nil
+		}
+		version, dirty = v, d
+		return verr
+	})
+	return version, dirty, err
+}
+
+func run(dsn, action string, do func(*migrate.Migrate) error) (err error) {
 	u, err := url.Parse(dsn)
 	if err != nil {
 		return errors.New("URL PostgreSQL inválida para migrations")
@@ -43,8 +74,8 @@ func Up(dsn string) (err error) {
 		sourceErr, databaseErr := runner.Close()
 		err = errors.Join(err, sourceErr, databaseErr)
 	}()
-	if err := runner.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("aplicar migrations: %w", err)
+	if err := do(runner); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("%s: %w", action, err)
 	}
 	return nil
 }

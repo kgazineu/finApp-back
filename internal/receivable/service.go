@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	ErrNotFound           = errors.New("installment not found")
-	ErrReceivableNotFound = errors.New("receivable not found")
-	ErrInvalidReceivable  = errors.New("invalid receivable")
+	ErrNotFound           = errors.New("parcela não encontrada")
+	ErrReceivableNotFound = errors.New("valor a receber não encontrado")
+	ErrInvalidReceivable  = errors.New("valor a receber inválido")
 )
 
 type Service struct {
@@ -25,7 +25,7 @@ func NewService(repo *Repository) *Service {
 
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, rec *Receivable, installments int, firstDueDate time.Time) (*Receivable, error) {
 	if rec.Kind == KindSplit && (rec.InterestRate != 0 || installments != 1) {
-		return nil, fmt.Errorf("%w: split cannot have interest or more than one installment", ErrInvalidReceivable)
+		return nil, fmt.Errorf("%w: conta dividida não pode ter juros nem mais de uma parcela", ErrInvalidReceivable)
 	}
 
 	rec.Installments = buildInstallments(rec.Amount, rec.InterestRate, installments, firstDueDate)

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // fuso embutido: TZ funciona mesmo em imagem sem zoneinfo (alpine)
 
 	"github.com/jmoiron/sqlx"
 	"github.com/kgazineu/finApp-back/internal/account"
@@ -19,6 +20,7 @@ import (
 	"github.com/kgazineu/finApp-back/internal/goal"
 	"github.com/kgazineu/finApp-back/internal/overview"
 	"github.com/kgazineu/finApp-back/internal/password"
+	"github.com/kgazineu/finApp-back/internal/passwordreset"
 	"github.com/kgazineu/finApp-back/internal/postgres"
 	"github.com/kgazineu/finApp-back/internal/receivable"
 	"github.com/kgazineu/finApp-back/internal/recurring"
@@ -101,7 +103,10 @@ func run(ctx context.Context) error {
 	apiServer := api.NewServer(users, api.WithFinancialServices(sessions, transactions), api.WithGoalService(goals), api.WithOverviewService(dashboard))
 	router := newRouter(apiServer)
 	// same pool as GORM; "pgx" is the database/sql driver registered by gorm.io/driver/postgres
-	registerBalanceModules(router, apiServer, sqlx.NewDb(pool, "pgx"))
+	sqlDB := sqlx.NewDb(pool, "pgx")
+	registerBalanceModules(router, apiServer, sqlDB)
+	passwordreset.NewModule(sqlDB, passwordreset.NewMailer(cfg.SMTP), password.Hasher{}).
+		RegisterRoutes(router.Group("/password-resets"))
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           router,

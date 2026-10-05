@@ -51,12 +51,12 @@ type UpdateAccountRequest struct {
 func (ctrl *Controller) Create(c *gin.Context) {
 	var req CreateAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": api.BindError(err)})
 		return
 	}
 
 	if req.Kind == KindLiability && req.HasYield == true {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "liability accounts cannot have yield"})
+		c.JSON(http.StatusBadRequest, gin.H{"message": ErrLiabilityWithYield.Error()})
 		return
 	}
 
@@ -66,7 +66,7 @@ func (ctrl *Controller) Create(c *gin.Context) {
 		HasYield: req.HasYield,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -76,7 +76,7 @@ func (ctrl *Controller) Create(c *gin.Context) {
 func (ctrl *Controller) FindActive(c *gin.Context) {
 	accounts, err := ctrl.service.FindActive(c.Request.Context(), api.UserID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -91,7 +91,7 @@ func (ctrl *Controller) FindActive(c *gin.Context) {
 func (ctrl *Controller) FindByID(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "id inválido"})
 		return
 	}
 
@@ -101,7 +101,7 @@ func (ctrl *Controller) FindByID(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -111,13 +111,13 @@ func (ctrl *Controller) FindByID(c *gin.Context) {
 func (ctrl *Controller) Update(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "id inválido"})
 		return
 	}
 
 	var req UpdateAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": api.BindError(err)})
 		return
 	}
 
@@ -136,7 +136,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -146,7 +146,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 func (ctrl *Controller) Delete(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "id inválido"})
 		return
 	}
 
@@ -156,15 +156,15 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
 	var responseMessage string
 	if deleteResult.Archived == true {
-		responseMessage = "account archived"
+		responseMessage = "conta arquivada"
 	} else {
-		responseMessage = "account deleted"
+		responseMessage = "conta apagada"
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": responseMessage})

@@ -1,5 +1,9 @@
 [build]
   cmd = "go build -o ./tmp/api ./cmd/api"
   bin = "./tmp/api"
-  include_ext = ["go"]
-  exclude_dir = ["tmp"]
+  # .sql também: as migrations vão embutidas no binário e rodam quando a API inicia
+  include_ext = ["go", "sql"]
+  # api/ é o projeto antigo (outro módulo Go); docs/ e testes não mudam o binário
+  exclude_dir = ["tmp", "api", "docs"]
+  exclude_regex = ["_test\\.go$"]
+  delay = 500

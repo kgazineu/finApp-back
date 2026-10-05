@@ -23,6 +23,11 @@ func validateProfile(name, email string) error {
 	return nil
 }
 
+// ValidatePassword applies the registration password policy (used by password reset).
+func ValidatePassword(password string) error {
+	return validatePassword(password)
+}
+
 func validatePassword(password string) error {
 	if !utf8.ValidString(password) {
 		return ErrInvalidPassword
