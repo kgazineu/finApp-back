@@ -77,7 +77,7 @@ func (ctrl *Controller) NextMonthProjectionController(c *gin.Context) {
 	if q := c.Query("months"); q != "" {
 		n, err := strconv.Atoi(q)
 		if err != nil || n < 1 || n > 120 {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "months must be a number between 1 and 120"})
+			c.JSON(http.StatusBadRequest, gin.H{"message": "A quantidade de meses deve ser um número entre 1 e 120"})
 			return
 		}
 		months = n
@@ -89,13 +89,13 @@ func (ctrl *Controller) NextMonthProjectionController(c *gin.Context) {
 
 	billings, err := ctrl.service.FindMany(ctx, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
 	projection, err := ctrl.service.MonthProjection(ctx, userID, now, months)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -123,7 +123,7 @@ func (ctrl *Controller) CreateController(c *gin.Context) {
 	var createBillingRequest CreateBillingRequest
 
 	if err := c.ShouldBindJSON(&createBillingRequest); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": api.BindError(err)})
 		return
 	}
 
@@ -133,7 +133,7 @@ func (ctrl *Controller) CreateController(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 

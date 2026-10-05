@@ -149,7 +149,7 @@ func (r *Repository) Update(ctx context.Context, userID uuid.UUID, t *Transactio
 		return nil, ErrNotFound
 	}
 	if postgres.ErrorCode(err) == pgerrcode.CheckViolation {
-		return nil, fmt.Errorf("%w: endMonth cannot be before startMonth", ErrInvalidTransaction)
+		return nil, fmt.Errorf("%w: o mês final não pode ser antes do mês de início", ErrInvalidTransaction)
 	}
 	if err != nil {
 		return nil, err

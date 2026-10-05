@@ -11,8 +11,8 @@ type Service struct {
 	repo *Repository
 }
 
-var ErrNotFound = errors.New("No account found with the given ID")
-var ErrLiabilityWithYield = errors.New("liability cannot have yield")
+var ErrNotFound = errors.New("conta não encontrada")
+var ErrLiabilityWithYield = errors.New("conta de passivo não pode ter rendimento")
 
 func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}

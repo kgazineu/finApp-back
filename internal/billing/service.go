@@ -12,7 +12,7 @@ import (
 	"github.com/kgazineu/finApp-back/internal/recurring"
 )
 
-var ErrInvalidEntries = errors.New("invalid entries")
+var ErrInvalidEntries = errors.New("lançamentos inválidos")
 
 type accountFinder interface {
 	FindActive(ctx context.Context, userID uuid.UUID) ([]*account.Account, error)
@@ -89,7 +89,7 @@ func (s *Service) CreateBillingRegistration(ctx context.Context, userID uuid.UUI
 	}
 
 	if len(amounts) != len(accounts) {
-		return nil, fmt.Errorf("%w: expected %d entries, got %d", ErrInvalidEntries, len(accounts), len(amounts))
+		return nil, fmt.Errorf("%w: era esperado um saldo para cada uma das %d contas ativas, mas vieram %d", ErrInvalidEntries, len(accounts), len(amounts))
 	}
 
 	reg := &BillingRegistration{}
@@ -97,7 +97,7 @@ func (s *Service) CreateBillingRegistration(ctx context.Context, userID uuid.UUI
 	for _, acc := range accounts {
 		amount, ok := amounts[acc.ID]
 		if !ok {
-			return nil, fmt.Errorf("%w: missing amount for account %d (%s)", ErrInvalidEntries, acc.ID, acc.Name)
+			return nil, fmt.Errorf("%w: falta o saldo da conta %s", ErrInvalidEntries, acc.Name)
 		}
 		reg.entries = append(reg.entries, &BillingEntry{
 			AccountID:   acc.ID,

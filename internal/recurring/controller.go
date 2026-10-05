@@ -147,13 +147,13 @@ func ToOccurrenceResponse(o Occurrence) OccurrenceResponse {
 func (ctrl *Controller) Create(c *gin.Context) {
 	var req CreateTransactionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": api.BindError(err)})
 		return
 	}
 
 	startMonth, err := time.Parse(monthLayout, req.StartMonth)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "startMonth must be YYYY-MM"})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "O mês de início deve estar no formato AAAA-MM"})
 		return
 	}
 
@@ -167,7 +167,7 @@ func (ctrl *Controller) Create(c *gin.Context) {
 		DayOfMonth:     req.DayOfMonth,
 	}, req.Installments)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -179,7 +179,7 @@ func (ctrl *Controller) FindByMonth(c *gin.Context) {
 	if m := c.Query("month"); m != "" {
 		parsed, err := time.Parse(monthLayout, m)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "month must be YYYY-MM"})
+			c.JSON(http.StatusBadRequest, gin.H{"message": "O mês deve estar no formato AAAA-MM"})
 			return
 		}
 		month = parsed
@@ -187,7 +187,7 @@ func (ctrl *Controller) FindByMonth(c *gin.Context) {
 
 	occurrences, err := ctrl.service.FindByMonth(c.Request.Context(), api.UserID(c), month)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -202,7 +202,7 @@ func (ctrl *Controller) FindByMonth(c *gin.Context) {
 func (ctrl *Controller) FindAll(c *gin.Context) {
 	transactions, err := ctrl.service.FindAll(c.Request.Context(), api.UserID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -217,13 +217,13 @@ func (ctrl *Controller) FindAll(c *gin.Context) {
 func (ctrl *Controller) Update(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "id inválido"})
 		return
 	}
 
 	var req UpdateTransactionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": api.BindError(err)})
 		return
 	}
 
@@ -231,7 +231,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 	if req.EndMonth != nil {
 		endMonth, err := time.Parse(monthLayout, *req.EndMonth)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "endMonth must be YYYY-MM"})
+			c.JSON(http.StatusBadRequest, gin.H{"message": "O mês final deve estar no formato AAAA-MM"})
 			return
 		}
 		t.EndMonth = &endMonth
@@ -247,7 +247,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -257,7 +257,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 func (ctrl *Controller) Delete(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "id inválido"})
 		return
 	}
 
@@ -267,7 +267,7 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -281,7 +281,7 @@ func (ctrl *Controller) FindPendingInstallments(c *gin.Context) {
 
 	pending, err := ctrl.service.FindPendingInstallments(c.Request.Context(), api.UserID(c), endOfMonth)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -298,7 +298,7 @@ func (ctrl *Controller) FindPaidInstallments(c *gin.Context) {
 
 	paid, err := ctrl.service.FindPaidInstallments(c.Request.Context(), api.UserID(c), now.AddDate(0, 0, -30))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -313,13 +313,13 @@ func (ctrl *Controller) FindPaidInstallments(c *gin.Context) {
 func (ctrl *Controller) SetInstallmentPaid(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "id inválido"})
 		return
 	}
 
 	var req SetPaidRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": api.BindError(err)})
 		return
 	}
 
@@ -329,7 +329,7 @@ func (ctrl *Controller) SetInstallmentPaid(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 

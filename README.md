@@ -19,6 +19,7 @@ Por baixo das duas está a **identidade**: `users` e `sessions`. Todo dado finan
 - [Autenticação](#autenticação)
 - [Módulo: Users](#módulo-users)
 - [Módulo: Sessions](#módulo-sessions)
+- [Módulo: Password resets (recuperação de senha)](#módulo-password-resets-recuperação-de-senha)
 - [Módulo: Transactions (lançamentos)](#módulo-transactions-lançamentos)
 - [Módulo: Goals (metas virtuais)](#módulo-goals-metas-virtuais)
 - [Módulo: Dashboard](#módulo-dashboard)
@@ -52,22 +53,59 @@ Por baixo das duas está a **identidade**: `users` e `sessions`. Todo dado finan
    ```bash
    cp .env.example .env
    ```
-2. Suba o banco (o compose lê o `.env`):
-   ```bash
-   docker compose up -d
-   ```
-3. Suba a API. Ela **não lê o `.env` sozinha**: as variáveis precisam estar no ambiente do processo. As migrations são aplicadas automaticamente na inicialização.
-   ```bash
-   set -a && source .env && set +a && air
-   ```
+2. Escolha como rodar. Nos dois jeitos as migrations são aplicadas sozinhas quando a API inicia, e salvar um `.go` ou `.sql` recompila a API (air):
+   - **Tudo no Docker** (banco + API com hot reload em `http://localhost:8080`; não precisa de Go instalado):
+     ```bash
+     make docker-up
+     ```
+     Logs (inclusive o código de recuperação de senha sem SMTP): `make docker-logs`. Parar: `make docker-down`.
+   - **Só o banco no Docker e a API local:**
+     ```bash
+     docker compose up -d db
+     ```
+     ```bash
+     make dev
+     ```
+     `make dev` carrega o `.env` e roda o [air](https://github.com/air-verse/air) (instala a versão fixada no Makefile na primeira vez).
+
+     Não suba os dois jeitos ao mesmo tempo: ambos usam a porta 8080 (`FINAPP_PORT` muda a porta da API do compose; `HTTP_ADDR` a da API local).
+3. Se a porta 5432 já estiver ocupada por outro Postgres, troque `POSTGRES_PORT` no `.env`; a API do compose continua falando com o banco pela rede interna.
 4. Documentação interativa (Swagger) em `http://localhost:8080/docs/` e especificação em `/openapi.json`.
 
-Variáveis: `DATABASE_URL` (tem precedência) ou `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_SSLMODE`; `HTTP_ADDR` (padrão `:8080`).
+`make` sem argumentos lista todos os comandos.
+
+### Migrations
+
+| Comando | O que faz |
+|---|---|
+| `make migration name=create_budgets` | cria `migrations/0000NN_create_budgets.up.sql` e `.down.sql` com o próximo número |
+| `make migrate-up` | aplica as pendentes (a API também faz isso ao iniciar) |
+| `make migrate-down` | desfaz a última; `make migrate-down n=3` desfaz as últimas 3 |
+| `make migrate-version` | mostra a versão aplicada no banco |
+| `make migrate-force version=9` | marca a versão como aplicada sem rodar SQL |
+
+Os comandos usam `cmd/migrate`, que lê o mesmo `.env`/`DATABASE_URL` da API: não precisa instalar o CLI do golang-migrate. Se uma migration falhar no meio, o banco fica **dirty** e nada mais roda: corrija o banco à mão e use `make migrate-force` com a última versão que está correta.
+
+### Variáveis de ambiente
+
+A API valida tudo ao iniciar e, se algo estiver errado, **não sobe** e lista todos os problemas de uma vez. A validação é na inicialização e não no build: a mesma imagem Docker é construída sem segredos (no CI) e recebe as variáveis só no deploy.
+
+| Variável | Regra |
+|---|---|
+| `DATABASE_URL` | URL PostgreSQL com host e banco; quando definida, ignora as `POSTGRES_*` |
+| `POSTGRES_PASSWORD` | obrigatória sem `DATABASE_URL` |
+| `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_SSLMODE` | padrões `localhost`, `5432`, `finapp`, `finapp`, `disable`; a porta precisa ser válida |
+| `HTTP_ADDR` | `host:porta`, padrão `:8080` |
+| `GIN_MODE=release` | marca produção: aí `SMTP_HOST` passa a ser obrigatório (o código de recuperação de senha não pode ir para o log) |
+| `SMTP_HOST`, `SMTP_PORT` | servidor de e-mail; porta padrão 587 |
+| `SMTP_FROM` | e-mail remetente (sem nome de exibição); sem ele, usa `SMTP_USERNAME` |
+| `SMTP_USERNAME`, `SMTP_PASSWORD` | autenticação; usuário exige senha |
+| `TZ` | fuso para "hoje", vencimentos e meses da projeção; a imagem Docker usa `America/Sao_Paulo` |
 
 ### Testes
 
 ```bash
-go test ./...
+make test
 ```
 
 Os testes de integração com PostgreSQL só rodam com `TEST_DATABASE_URL` apontando para um **banco descartável** (cada teste cria e apaga o próprio schema). No CI ela é obrigatória.
@@ -129,7 +167,7 @@ O dashboard trabalha em UTC. Nos módulos de saldo, "hoje" e "agora" são o rel�
 
 ### Erros
 
-Todo erro volta como `{"message": "texto"}`.
+Todo erro volta como `{"message": "texto"}`, sempre em português.
 
 | Status | Quando |
 |---|---|
@@ -212,6 +250,29 @@ requisição ──► Gin ───────┤
 ```
 
 A resposta tem `Cache-Control: no-store`. Detalhes na seção [Autenticação](#autenticação).
+
+---
+
+## Módulo: Password resets (recuperação de senha)
+
+Recupera o acesso por e-mail com um **código de 6 dígitos** (OTC). Rotas públicas, montadas em `cmd/api/main.go` a partir de `internal/passwordreset`.
+
+| Método | Rota | Corpo | Resposta |
+|---|---|---|---|
+| `POST` | `/password-resets` | `{ "email" }` | `202` sempre, exista ou não a conta |
+| `POST` | `/password-resets/verify` | `{ "email", "code" }` | `200` código válido · `400 código inválido ou expirado` |
+| `POST` | `/password-resets/confirm` | `{ "email", "code", "password" }` | `200` senha trocada · `400` código ou senha inválidos |
+
+**Regras**
+
+- Um código ativo por usuário (tabela `password_resets`, só o SHA-256 do código fica no banco).
+- Vale **15 minutos** e aceita **5 verificações** (certas ou erradas): verificar e confirmar gastam uma cada.
+- Pedir de novo troca o código, mas só depois de **1 minuto** do anterior (anti-spam); antes disso a resposta é a mesma e nada é enviado.
+- A senha nova segue a mesma política do cadastro e é validada **antes** de gastar tentativa.
+- Confirmar troca o hash, apaga o código e **encerra todas as sessões** do usuário.
+- O e-mail sai em segundo plano, então o tempo de resposta não revela se a conta existe.
+
+**Envio**: com `SMTP_HOST` definido (mais `SMTP_PORT`, padrão 587, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`), usa SMTP. Sem ele, o e-mail **com o código** vai para o log da API: serve para desenvolvimento, nunca para produção.
 
 ---
 
@@ -307,7 +368,7 @@ Cadastro das contas cujo saldo você acompanha: conta corrente, carteira digital
 | `GET` | `/accounts/:id` | Uma conta (inclusive arquivada) |
 | `POST` | `/accounts` | Cria |
 | `PATCH` | `/accounts/:id` | Edita nome, tipo e rendimento (exige os três campos) |
-| `DELETE` | `/accounts/:id` | Apaga ou arquiva: `{"message": "account deleted"}` ou `{"message": "account archived"}` |
+| `DELETE` | `/accounts/:id` | Apaga ou arquiva: `{"message": "conta apagada"}` ou `{"message": "conta arquivada"}` |
 
 ```json
 { "name": "Fatura Nubank", "kind": "liability", "hasYield": false }
@@ -328,8 +389,8 @@ Resposta:
 ### Registro de saldos
 
 1. Um registro é um **retrato completo**: exatamente **um lançamento para cada conta ativa sua**. Nem mais, nem menos, nem conta repetida.
-   - Faltou uma conta → `400 missing amount for account <id> (<nome>)`
-   - Quantidade diferente do número de contas ativas → `400 expected N entries, got M`
+   - Faltou uma conta → `400 lançamentos inválidos: falta o saldo da conta <nome>`
+   - Quantidade diferente do número de contas ativas → `400 lançamentos inválidos: era esperado um saldo para cada uma das N contas ativas, mas vieram M`
    - Mesma conta duas vezes → `400`
    - Conta de outro usuário nunca bate com as suas → `400`
 2. Cada valor é o **saldo da conta**, em centavos, **sempre ≥ 0**. A fatura do cartão vai positiva: quem diz que ela subtrai é o tipo da conta.
@@ -706,7 +767,7 @@ Regras garantidas pelo banco:
 
 `paid_at` nulo = não pago/recebido. `archived_at` nulo = ativo.
 
-Migrations: `000001`–`000005` (users, transactions, sessions, goals) e `000006`–`000009` (accounts, billings, recurring transactions, receivables).
+Migrations: `000001`–`000005` (users, transactions, sessions, goals), `000006`–`000009` (accounts, billings, recurring transactions, receivables) e `000010` (password resets).
 
 ---
 
@@ -714,9 +775,9 @@ Migrations: `000001`–`000005` (users, transactions, sessions, goals) e `000006
 
 **Geral**
 
-- Não há logout, renovação de sessão nem limpeza de sessões expiradas.
+- Não há logout no servidor (o cliente descarta o token), renovação de sessão nem limpeza de sessões expiradas ou de códigos de recuperação vencidos.
 - Os módulos de saldo **não estão no `openapi.yaml`/Swagger**.
-- Os módulos de saldo usam o binding do Gin: não exigem `Content-Type`, não limitam o tamanho do corpo e ignoram campos desconhecidos (as rotas OpenAPI fazem os três). Erros `500` deles devolvem a mensagem crua do banco.
+- Os módulos de saldo e a recuperação de senha usam o binding do Gin: não exigem `Content-Type`, não limitam o tamanho do corpo e ignoram campos desconhecidos (as rotas OpenAPI fazem os três). Erros de validação voltam traduzidos (`api.BindError`); erros `500` respondem uma mensagem genérica em português e a causa vai para o log (`api.InternalError`).
 - As rotas não têm barra no final. `/accounts/` redireciona para `/accounts` (301 em `GET`, 307 nos demais).
 - `transactions` e `recurring-transactions` são independentes: marcar uma parcela como paga não cria lançamento, e lançar um gasto não baixa parcela.
 

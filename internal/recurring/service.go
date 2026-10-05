@@ -9,9 +9,9 @@ import (
 )
 
 var (
-	ErrNotFound            = errors.New("transaction not found")
-	ErrInstallmentNotFound = errors.New("installment not found")
-	ErrInvalidTransaction  = errors.New("invalid transaction")
+	ErrNotFound            = errors.New("transação não encontrada")
+	ErrInstallmentNotFound = errors.New("parcela não encontrada")
+	ErrInvalidTransaction  = errors.New("transação inválida")
 )
 
 type Service struct {

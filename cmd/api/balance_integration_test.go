@@ -130,7 +130,7 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 	// conta com histórico é arquivada, não apagada
 	var deleted struct{ Message string }
 	decode(call(http.MethodDelete, fmt.Sprintf("/accounts/%d", bank.ID), "", alice, http.StatusOK), &deleted)
-	if deleted.Message != "account archived" {
+	if deleted.Message != "conta arquivada" {
 		t.Fatalf("expected archive, got %q", deleted.Message)
 	}
 }

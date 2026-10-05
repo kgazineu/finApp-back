@@ -105,13 +105,13 @@ func ToReceivableResponse(r *Receivable, now time.Time) ReceivableResponse {
 func (ctrl *Controller) Create(c *gin.Context) {
 	var req CreateReceivableRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": api.BindError(err)})
 		return
 	}
 
 	firstDueDate, err := time.Parse(time.DateOnly, req.FirstDueDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "firstDueDate must be YYYY-MM-DD"})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "O primeiro vencimento deve estar no formato AAAA-MM-DD"})
 		return
 	}
 
@@ -127,7 +127,7 @@ func (ctrl *Controller) Create(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -137,7 +137,7 @@ func (ctrl *Controller) Create(c *gin.Context) {
 func (ctrl *Controller) FindPendingInstallments(c *gin.Context) {
 	pending, err := ctrl.service.FindPendingInstallments(c.Request.Context(), api.UserID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -155,7 +155,7 @@ func (ctrl *Controller) FindPaidInstallments(c *gin.Context) {
 
 	paid, err := ctrl.service.FindPaidInstallments(c.Request.Context(), api.UserID(c), now.AddDate(0, 0, -30))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -170,13 +170,13 @@ func (ctrl *Controller) FindPaidInstallments(c *gin.Context) {
 func (ctrl *Controller) SetInstallmentPaid(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "id inválido"})
 		return
 	}
 
 	var req SetPaidRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": api.BindError(err)})
 		return
 	}
 
@@ -186,7 +186,7 @@ func (ctrl *Controller) SetInstallmentPaid(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -196,7 +196,7 @@ func (ctrl *Controller) SetInstallmentPaid(c *gin.Context) {
 func (ctrl *Controller) FindAll(c *gin.Context) {
 	receivables, err := ctrl.service.FindAll(c.Request.Context(), api.UserID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -212,13 +212,13 @@ func (ctrl *Controller) FindAll(c *gin.Context) {
 func (ctrl *Controller) Update(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "id inválido"})
 		return
 	}
 
 	var req UpdateReceivableRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": api.BindError(err)})
 		return
 	}
 
@@ -228,7 +228,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
@@ -238,7 +238,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 func (ctrl *Controller) Delete(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "id inválido"})
 		return
 	}
 
@@ -248,7 +248,7 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		api.InternalError(c, err)
 		return
 	}
 
