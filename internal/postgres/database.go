@@ -2,9 +2,11 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	pgdriver "gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -32,4 +34,13 @@ func Open(ctx context.Context, dsn string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("conectar ao PostgreSQL: %w", err)
 	}
 	return db, nil
+}
+
+// ErrorCode returns the PostgreSQL SQLSTATE of err (see pgerrcode), or "" when err did not come from the server.
+func ErrorCode(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code
+	}
+	return ""
 }
