@@ -1,0 +1,3 @@
+DROP TABLE recurring_transaction_installments;
+DROP TABLE recurring_transactions;
+DROP TYPE recurring_transaction_kind;

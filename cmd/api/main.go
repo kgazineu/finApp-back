@@ -10,13 +10,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jmoiron/sqlx"
+	"github.com/kgazineu/finApp-back/internal/account"
 	"github.com/kgazineu/finApp-back/internal/api"
 	"github.com/kgazineu/finApp-back/internal/auth"
+	"github.com/kgazineu/finApp-back/internal/billing"
 	"github.com/kgazineu/finApp-back/internal/config"
 	"github.com/kgazineu/finApp-back/internal/goal"
 	"github.com/kgazineu/finApp-back/internal/overview"
 	"github.com/kgazineu/finApp-back/internal/password"
 	"github.com/kgazineu/finApp-back/internal/postgres"
+	"github.com/kgazineu/finApp-back/internal/receivable"
+	"github.com/kgazineu/finApp-back/internal/recurring"
 	"github.com/kgazineu/finApp-back/internal/transaction"
 	"github.com/kgazineu/finApp-back/internal/user"
 	"github.com/kgazineu/finApp-back/migrations"
@@ -37,6 +42,25 @@ func newRouter(server api.ServerInterface) *gin.Engine {
 	api.RegisterDocumentation(router)
 
 	return router
+}
+
+// registerBalanceModules mounts the balance-tracking modules (accounts, billings,
+// recurring transactions and receivables) behind the Bearer session middleware.
+// They are plain Gin routes, outside the OpenAPI-generated interface.
+func registerBalanceModules(router gin.IRouter, server *api.Server, db *sqlx.DB) {
+	protected := router.Group("", server.RequireSession)
+
+	accounts := account.NewModule(db)
+	accounts.RegisterRoutes(protected.Group("/accounts"))
+
+	transactions := recurring.NewModule(db)
+	transactions.RegisterRoutes(protected.Group("/recurring-transactions"))
+
+	receivables := receivable.NewModule(db)
+	receivables.RegisterRoutes(protected.Group("/receivables"))
+
+	billings := billing.NewModule(db, accounts.Service(), transactions.Service(), receivables.Service())
+	billings.RegisterRoutes(protected.Group("/billings"))
 }
 
 func main() {
@@ -74,9 +98,13 @@ func run(ctx context.Context) error {
 	transactions := transaction.NewService(postgres.NewTransactionRepository(db))
 	goals := goal.NewService(postgres.NewGoalRepository(db))
 	dashboard := overview.NewService(postgres.NewOverviewRepository(db))
+	apiServer := api.NewServer(users, api.WithFinancialServices(sessions, transactions), api.WithGoalService(goals), api.WithOverviewService(dashboard))
+	router := newRouter(apiServer)
+	// same pool as GORM; "pgx" is the database/sql driver registered by gorm.io/driver/postgres
+	registerBalanceModules(router, apiServer, sqlx.NewDb(pool, "pgx"))
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           newRouter(api.NewServer(users, api.WithFinancialServices(sessions, transactions), api.WithGoalService(goals), api.WithOverviewService(dashboard))),
+		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
