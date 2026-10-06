@@ -88,10 +88,26 @@ func TestOpenAPISpec(t *testing.T) {
 			t.Errorf("%s /transactions não foi encontrado na especificação publicada", method)
 		}
 	}
+	// inclui as rotas registradas à mão (fora da interface gerada), documentadas pelo spec.gen.go
 	for path, methods := range map[string][]string{
-		"/dashboard":              {"get"},
-		"/goals":                  {"get", "post"},
-		"/goals/{id}/allocations": {"post"},
+		"/dashboard":                          {"get"},
+		"/goals":                              {"get", "post"},
+		"/goals/{id}/allocations":             {"post"},
+		"/accounts":                           {"get", "post"},
+		"/accounts/{id}":                      {"get", "patch", "delete"},
+		"/billings":                           {"get", "post"},
+		"/recurring-transactions":             {"get", "post"},
+		"/recurring-transactions/occurrences": {"get"},
+		"/recurring-transactions/{id}":        {"patch", "delete"},
+		"/recurring-transactions/installments/{id}": {"patch"},
+		"/receivables":                   {"get", "post"},
+		"/receivables/{id}":              {"patch", "delete"},
+		"/receivables/installments/{id}": {"patch"},
+		"/password-resets":               {"post"},
+		"/password-resets/verify":        {"post"},
+		"/password-resets/confirm":       {"post"},
+		"/export":                        {"get"},
+		"/import":                        {"post"},
 	} {
 		var operations map[string]json.RawMessage
 		if err := json.Unmarshal(spec.Paths[path], &operations); err != nil {

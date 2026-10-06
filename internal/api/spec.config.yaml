@@ -1,0 +1,6 @@
+# Spec completo, com todas as tags, embutido para /openapi.json e /docs.
+package: api
+output: spec.gen.go
+
+generate:
+  embedded-spec: true

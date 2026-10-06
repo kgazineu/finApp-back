@@ -2,8 +2,11 @@ openapi: 3.0.3
 
 info:
   title: FinApp API
-  description: API para gerenciamento financeiro
-  version: 0.1.0
+  description: >-
+    API de controle financeiro pessoal. Valores monetários são inteiros em centavos (R$ 6.505,50 = 650550).
+    Rotas com cadeado exigem o token Bearer de POST /sessions; o dono de cada registro é sempre o usuário do
+    token, e recurso de outro usuário responde 404. Erros vêm como {"message": "..."}, em português.
+  version: 0.2.0
 
 servers:
   - url: http://localhost:8080
@@ -22,6 +25,18 @@ tags:
     description: Metas com saldo virtual, sem transferência bancária
   - name: Dashboard
     description: Resumo de lançamentos registrados, sem vínculo bancário
+  - name: Accounts
+    description: Contas cujo saldo é acompanhado; ativos somam e passivos subtraem
+  - name: Billings
+    description: Registros de saldo (com delta) e projeção do saldo futuro
+  - name: Recurring transactions
+    description: Entradas e despesas planejadas (fixas, parceladas ou únicas) e suas parcelas
+  - name: Receivables
+    description: Valores a receber (contas divididas, empréstimos e valores fixos por mês) e suas parcelas
+  - name: Password resets
+    description: Recuperação de senha por código de 6 dígitos enviado por e-mail
+  - name: Data
+    description: Exportação e importação de todos os dados do usuário (backup e migração)
 
 paths:
   /health:
@@ -572,7 +587,773 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /accounts:
+    get:
+      operationId: listAccounts
+      summary: Lista as contas ativas
+      description: Contas arquivadas não aparecem. Ordem por id.
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Contas ativas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AccountResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: createAccount
+      summary: Cria uma conta
+      description: Conta de passivo (liability) não pode ter rendimento.
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountRequest"
+      responses:
+        "201":
+          description: Conta criada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /accounts/{id}:
+    parameters:
+      - $ref: "#/components/parameters/RecordID"
+    get:
+      operationId: getAccount
+      summary: Busca uma conta, inclusive arquivada
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Conta
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      operationId: updateAccount
+      summary: Edita nome, tipo e rendimento
+      description: Os três campos são substituídos. Conta arquivada não pode ser editada (404).
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountRequest"
+      responses:
+        "200":
+          description: Conta atualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteAccount
+      summary: Apaga a conta ou arquiva se ela já aparece em registros de saldo
+      description: >-
+        Com histórico, a conta é arquivada (some das listagens e dos novos registros) e a resposta é
+        "conta arquivada"; sem histórico, é apagada ("conta apagada").
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Conta apagada ou arquivada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+              example:
+                message: conta arquivada
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /billings:
+    get:
+      operationId: getProjection
+      summary: Registros de saldo e projeção do saldo futuro
+      description: >-
+        Projeção para o primeiro dia depois do fim do N-ésimo mês (contando o atual como o primeiro):
+        total do último registro de saldos + entradas − despesas planejadas não pagas + valores a receber
+        não recebidos, com vencimento até lá (atrasados incluídos). Antes de calcular, gera as parcelas
+        das transações planejadas que ainda não existem.
+      tags: [Billings]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: months
+          in: query
+          description: Quantos meses à frente, contando o mês atual.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 120
+            default: 1
+      responses:
+        "200":
+          description: Registros e projeção
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: createBillingRegistration
+      summary: Registra o saldo atual de cada conta ativa
+      description: >-
+        Exige exatamente um saldo por conta ativa. Total = soma dos ativos − soma dos passivos;
+        delta = total − total do registro anterior (null no primeiro registro do usuário).
+        O nome da conta é copiado para o histórico. Registros não podem ser editados nem apagados.
+      tags: [Billings]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBillingRequest"
+      responses:
+        "201":
+          description: Registro criado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingRegistrationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recurring-transactions:
+    get:
+      operationId: listRecurringTransactions
+      summary: Lista as transações planejadas ativas
+      description: Ordem pelo dia do mês (sem dia certo por último).
+      tags: [Recurring transactions]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Transações planejadas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RecurringTransactionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: createRecurringTransaction
+      summary: Cria uma entrada ou despesa planejada
+      description: >-
+        As parcelas não nascem junto: são geradas sob demanda (pendentes ou projeção), a partir do mês
+        de cadastro; meses anteriores ao cadastro não viram parcela pendente.
+      tags: [Recurring transactions]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecurringTransactionRequest"
+      responses:
+        "201":
+          description: Transação criada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringTransactionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recurring-transactions/occurrences:
+    get:
+      operationId: listRecurringOccurrences
+      summary: O que acontece em um mês, calculado pelas regras
+      description: Só um cálculo a partir das regras; não olha parcelas nem sabe o que foi pago.
+      tags: [Recurring transactions]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: month
+          in: query
+          description: Mês no formato AAAA-MM; padrão é o mês atual.
+          schema:
+            type: string
+            pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+            example: '2026-10'
+      responses:
+        "200":
+          description: Ocorrências do mês
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RecurringOccurrenceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recurring-transactions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/RecordID"
+    patch:
+      operationId: updateRecurringTransaction
+      summary: Edita descrição, valor, dia do mês e mês final
+      description: >-
+        Substitui dayOfMonth e endMonth (omitir = sem dia certo / sem fim): envie sempre os valores atuais.
+        Parcelas pagas não mudam; as não pagas são refeitas com os valores novos.
+      tags: [Recurring transactions]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRecurringTransactionRequest"
+      responses:
+        "200":
+          description: Transação atualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringTransactionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteRecurringTransaction
+      summary: Apaga a transação ou arquiva se ela já tem parcela paga
+      description: As parcelas não pagas são apagadas; sobrando alguma paga, a transação é arquivada.
+      tags: [Recurring transactions]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Apagada ou arquivada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchivedResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recurring-transactions/installments/pending:
+    get:
+      operationId: listPendingRecurringInstallments
+      summary: Parcelas não pagas até o fim do mês atual (inclui atrasadas)
+      tags: [Recurring transactions]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Parcelas pendentes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PendingRecurringInstallmentResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recurring-transactions/installments/paid:
+    get:
+      operationId: listPaidRecurringInstallments
+      summary: Parcelas marcadas como pagas nos últimos 30 dias
+      tags: [Recurring transactions]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Parcelas pagas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PendingRecurringInstallmentResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recurring-transactions/installments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/RecordID"
+    patch:
+      operationId: setRecurringInstallmentPaid
+      summary: Marca ou desmarca uma parcela como paga
+      description: Marcar de novo uma parcela já paga mantém a data original do pagamento.
+      tags: [Recurring transactions]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPaidRequest"
+      responses:
+        "200":
+          description: Parcela atualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringInstallmentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /receivables:
+    get:
+      operationId: listReceivables
+      summary: Lista os valores a receber ativos, com as parcelas
+      description: Mais novo primeiro.
+      tags: [Receivables]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Valores a receber
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReceivableResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: createReceivable
+      summary: Cria um valor a receber já com todas as parcelas
+      description: >-
+        amountMode "total" divide o valor (com juros simples) entre as parcelas, e o resto da divisão vai para
+        a última; "installment" usa o valor como o de cada parcela, sem juros. As parcelas vencem mês a mês a
+        partir de firstDueDate, que pode ser no passado: as já vencidas nascem atrasadas.
+      tags: [Receivables]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReceivableRequest"
+      responses:
+        "201":
+          description: Valor a receber criado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceivableResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /receivables/{id}:
+    parameters:
+      - $ref: "#/components/parameters/RecordID"
+    patch:
+      operationId: updateReceivable
+      summary: Edita devedor e descrição
+      description: >-
+        Valor e vencimento são editados por parcela (PATCH /receivables/installments/{id}).
+        Nesta resposta a lista de parcelas vem vazia.
+      tags: [Receivables]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReceivableRequest"
+      responses:
+        "200":
+          description: Valor a receber atualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceivableResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteReceivable
+      summary: Apaga o valor a receber ou arquiva se ele já tem parcela recebida
+      description: As parcelas não recebidas são apagadas; sobrando alguma recebida, ele é arquivado.
+      tags: [Receivables]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Apagado ou arquivado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchivedResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /receivables/installments/pending:
+    get:
+      operationId: listPendingReceivableInstallments
+      summary: Todas as parcelas não recebidas, sem limite de data
+      tags: [Receivables]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Parcelas pendentes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PendingReceivableInstallmentResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /receivables/installments/paid:
+    get:
+      operationId: listPaidReceivableInstallments
+      summary: Parcelas marcadas como recebidas nos últimos 30 dias
+      tags: [Receivables]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Parcelas recebidas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PendingReceivableInstallmentResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /receivables/installments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/RecordID"
+    patch:
+      operationId: updateReceivableInstallment
+      summary: Marca como recebida e/ou edita valor e vencimento de uma parcela
+      description: >-
+        Envie qualquer combinação de paid, amount e dueDate (nenhum → 400). Com applyToFollowing, o novo valor
+        e o novo vencimento (mês a mês a partir da nova data) valem também para as parcelas seguintes ainda não
+        recebidas, por exemplo quando uma assinatura aumenta. Parcelas recebidas nunca mudam em lote.
+      tags: [Receivables]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReceivableInstallmentRequest"
+      responses:
+        "200":
+          description: Parcela atualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceivableInstallmentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /password-resets:
+    post:
+      operationId: requestPasswordReset
+      summary: Envia um código de 6 dígitos para o e-mail
+      description: >-
+        Responde 202 mesmo quando o e-mail não tem conta. O código vale 15 minutos e 5 verificações; um novo
+        código só é enviado 1 minuto depois do anterior. Sem SMTP configurado, o e-mail vai para o log.
+      tags: [Password resets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetRequest"
+      responses:
+        "202":
+          description: Pedido aceito
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /password-resets/verify:
+    post:
+      operationId: verifyPasswordResetCode
+      summary: Confere se o código é válido
+      description: Cada verificação, certa ou errada, gasta uma das 5 tentativas.
+      tags: [Password resets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyPasswordResetRequest"
+      responses:
+        "200":
+          description: Código válido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /password-resets/confirm:
+    post:
+      operationId: confirmPasswordReset
+      summary: Troca a senha usando o código
+      description: >-
+        A senha nova segue a política do cadastro e é validada antes de gastar tentativa. Ao trocar,
+        o código é apagado e todas as sessões do usuário são encerradas.
+      tags: [Password resets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmPasswordResetRequest"
+      responses:
+        "200":
+          description: Senha alterada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /export:
+    get:
+      operationId: exportData
+      summary: Exporta todos os dados do usuário
+      description: >-
+        Contas (inclusive arquivadas), registros de saldo, transações planejadas e valores a receber com as
+        parcelas, lançamentos e metas, numa foto consistente. Use o arquivo em POST /import.
+      tags: [Data]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Arquivo de exportação
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /import:
+    post:
+      operationId: importData
+      summary: Importa um arquivo de exportação numa conta vazia
+      description: >-
+        Grava tudo ou nada (uma transação). Os registros ganham ids novos e as ligações são refeitas; datas de
+        criação, arquivamento e pagamento são mantidas. Só aceita conta sem dados (409 caso contrário).
+      tags: [Data]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportDocument"
+      responses:
+        "200":
+          description: Dados importados
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          description: Arquivo maior que 20 MB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
+  parameters:
+    RecordID:
+      name: id
+      in: path
+      required: true
+      description: Id numérico do registro
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+  responses:
+    BadRequest:
+      description: Dados inválidos ou regra de negócio violada (mensagem em português)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Sessão ausente, inválida ou expirada
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Não encontrado, ou pertence a outro usuário
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Conflito com os dados existentes
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Falha interna
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
   securitySchemes:
     bearerAuth:
       type: http
@@ -919,3 +1700,725 @@ components:
         message:
           type: string
           example: Dados de entrada inválidos
+
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    ArchivedResponse:
+      type: object
+      required: [archived]
+      properties:
+        archived:
+          type: boolean
+          description: true = tinha histórico e foi arquivado; false = foi apagado
+
+    AccountKind:
+      type: string
+      enum: [asset, liability]
+      description: asset (ativo, ex. conta do banco) soma no total; liability (passivo, ex. fatura do cartão) subtrai
+
+    AccountRequest:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          example: Nubank
+        kind:
+          $ref: "#/components/schemas/AccountKind"
+        hasYield:
+          type: boolean
+          default: false
+          description: Se a conta rende (só informativo). Passivo nunca rende.
+
+    AccountResponse:
+      type: object
+      required: [id, name, kind, hasYield, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        kind:
+          $ref: "#/components/schemas/AccountKind"
+        hasYield:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    BillingEntryInput:
+      type: object
+      required: [accountId, amount]
+      properties:
+        accountId:
+          type: integer
+          format: int64
+        amount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Saldo da conta em centavos; a fatura vai positiva (o tipo da conta diz que subtrai)
+
+    CreateBillingRequest:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          minItems: 1
+          description: Um saldo para cada conta ativa, sem repetir conta
+          items:
+            $ref: "#/components/schemas/BillingEntryInput"
+
+    BillingEntryResponse:
+      type: object
+      required: [id, accountId, accountName, amount]
+      properties:
+        id:
+          type: integer
+          format: int64
+        accountId:
+          type: integer
+          format: int64
+        accountName:
+          type: string
+          description: Nome da conta na época do registro
+        amount:
+          type: integer
+          format: int64
+
+    BillingRegistrationResponse:
+      type: object
+      required: [id, delta, total, entries, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        delta:
+          type: integer
+          format: int64
+          nullable: true
+          description: Total deste registro − total do anterior; null no primeiro registro
+        total:
+          type: integer
+          format: int64
+          description: Soma dos ativos − soma dos passivos, em centavos
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillingEntryResponse"
+        createdAt:
+          type: string
+          format: date-time
+
+    ProjectionResponse:
+      type: object
+      required: [billingRegistrations, projectedFor, projectedAmount, pendingTransactions, pendingReceivables]
+      properties:
+        billingRegistrations:
+          type: array
+          description: Do mais antigo para o mais novo
+          items:
+            $ref: "#/components/schemas/BillingRegistrationResponse"
+        projectedFor:
+          type: string
+          format: date
+          description: Primeiro dia depois do período projetado
+        projectedAmount:
+          type: integer
+          format: int64
+        pendingTransactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PendingRecurringInstallmentResponse"
+        pendingReceivables:
+          type: array
+          items:
+            $ref: "#/components/schemas/PendingReceivableInstallmentResponse"
+
+    RecurringTransactionResponse:
+      type: object
+      required: [id, description, kind, isFixed, amount, startMonth, intervalMonths, endMonth, dayOfMonth, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        description:
+          type: string
+        kind:
+          type: string
+          enum: [income, expense]
+        isFixed:
+          type: boolean
+          description: true = fixa (sem quantidade definida, ex. salário); false = variável (uma vez ou parcelada)
+        amount:
+          type: integer
+          format: int64
+          description: Centavos; o sinal vem do kind
+        startMonth:
+          type: string
+          example: '2026-10'
+        intervalMonths:
+          type: integer
+        endMonth:
+          type: string
+          nullable: true
+          description: Último mês (AAAA-MM); null = sem fim
+        dayOfMonth:
+          type: integer
+          nullable: true
+          description: Dia do vencimento; null = último dia do mês
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateRecurringTransactionRequest:
+      type: object
+      required: [description, kind, isFixed, amount, startMonth]
+      properties:
+        description:
+          type: string
+          minLength: 1
+          example: Celular
+        kind:
+          type: string
+          enum: [income, expense]
+        isFixed:
+          type: boolean
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 15000
+        startMonth:
+          type: string
+          pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+          example: '2026-11'
+        intervalMonths:
+          type: integer
+          minimum: 0
+          maximum: 120
+          description: A cada quantos meses; 0 ou omitido = todo mês
+        installments:
+          type: integer
+          minimum: 0
+          maximum: 600
+          description: Quantas vezes acontece; 0 ou omitido = fixa sem fim, variável uma vez só
+        dayOfMonth:
+          type: integer
+          minimum: 1
+          maximum: 31
+          description: Sem dia = vence no último dia do mês; dia 31 em mês curto vai para o último dia
+
+    UpdateRecurringTransactionRequest:
+      type: object
+      required: [description, amount]
+      properties:
+        description:
+          type: string
+          minLength: 1
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+        dayOfMonth:
+          type: integer
+          minimum: 1
+          maximum: 31
+          nullable: true
+          description: Omitir ou null = sem dia certo
+        endMonth:
+          type: string
+          pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+          nullable: true
+          description: Omitir ou null = sem fim; não pode ser antes do mês de início
+
+    RecurringOccurrenceResponse:
+      type: object
+      required: [transactionId, description, kind, isFixed, amount, date]
+      properties:
+        transactionId:
+          type: integer
+          format: int64
+        description:
+          type: string
+        kind:
+          type: string
+          enum: [income, expense]
+        isFixed:
+          type: boolean
+        amount:
+          type: integer
+          format: int64
+        date:
+          type: string
+          format: date
+          nullable: true
+          description: null quando não há dia definido
+        installment:
+          type: integer
+          description: Numeração "x de N", só em variáveis com mais de uma ocorrência
+        installments:
+          type: integer
+
+    RecurringInstallmentResponse:
+      type: object
+      required: [id, transactionId, number, amount, dueDate, paidAt, overdue]
+      properties:
+        id:
+          type: integer
+          format: int64
+        transactionId:
+          type: integer
+          format: int64
+        number:
+          type: integer
+          description: Conta desde o mês de início, mesmo pulando meses anteriores ao cadastro
+        amount:
+          type: integer
+          format: int64
+          description: Cópia do valor quando a parcela foi gerada
+        dueDate:
+          type: string
+          format: date
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        overdue:
+          type: boolean
+          description: Não paga e com vencimento antes de hoje
+
+    PendingRecurringInstallmentResponse:
+      allOf:
+        - $ref: "#/components/schemas/RecurringInstallmentResponse"
+        - type: object
+          required: [description, kind, isFixed]
+          properties:
+            description:
+              type: string
+            kind:
+              type: string
+              enum: [income, expense]
+            isFixed:
+              type: boolean
+
+    SetPaidRequest:
+      type: object
+      required: [paid]
+      properties:
+        paid:
+          type: boolean
+
+    ReceivableAmountMode:
+      type: string
+      enum: [total, installment]
+      default: total
+      description: total = o valor é dividido entre as parcelas; installment = o valor é o de cada parcela
+
+    ReceivableInstallmentResponse:
+      type: object
+      required: [id, number, amount, dueDate, paidAt, overdue]
+      properties:
+        id:
+          type: integer
+          format: int64
+        number:
+          type: integer
+        amount:
+          type: integer
+          format: int64
+          description: Valor da parcela, já com juros
+        dueDate:
+          type: string
+          format: date
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: null = ainda não recebida
+        overdue:
+          type: boolean
+
+    PendingReceivableInstallmentResponse:
+      allOf:
+        - $ref: "#/components/schemas/ReceivableInstallmentResponse"
+        - type: object
+          required: [receivableId, debtor, description]
+          properties:
+            receivableId:
+              type: integer
+              format: int64
+            debtor:
+              type: string
+            description:
+              type: string
+
+    ReceivableResponse:
+      type: object
+      required: [id, kind, debtor, description, amount, amountMode, interestRate, installments, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        kind:
+          type: string
+          enum: [split, loan]
+          description: split = conta dividida (sem juros, uma parcela); loan = empréstimo
+        debtor:
+          type: string
+        description:
+          type: string
+        amount:
+          type: integer
+          format: int64
+          description: Como cadastrado; no modo total, sem juros. O valor atual de cada parcela está em installments.
+        amountMode:
+          $ref: "#/components/schemas/ReceivableAmountMode"
+        interestRate:
+          type: integer
+          description: Percentual de juros simples sobre o total (5 = 5%); sempre 0 no modo installment
+        installments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceivableInstallmentResponse"
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateReceivableRequest:
+      type: object
+      required: [kind, debtor, description, amount, firstDueDate]
+      properties:
+        kind:
+          type: string
+          enum: [split, loan]
+        debtor:
+          type: string
+          minLength: 1
+          example: João
+        description:
+          type: string
+          minLength: 1
+          example: Bicicleta
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 100000
+        amountMode:
+          $ref: "#/components/schemas/ReceivableAmountMode"
+        interestRate:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Só no modo total; conta dividida não tem juros
+        installments:
+          type: integer
+          minimum: 0
+          maximum: 120
+          description: 0 ou omitido = 1 parcela; conta dividida sempre 1
+        firstDueDate:
+          type: string
+          format: date
+          description: Data de início (1º vencimento); pode ser no passado
+
+    UpdateReceivableRequest:
+      type: object
+      required: [debtor, description]
+      properties:
+        debtor:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          minLength: 1
+
+    UpdateReceivableInstallmentRequest:
+      type: object
+      properties:
+        paid:
+          type: boolean
+          description: Marca ou desmarca como recebida
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 6000
+        dueDate:
+          type: string
+          format: date
+          example: '2026-10-20'
+        applyToFollowing:
+          type: boolean
+          default: false
+          description: Leva o valor e o vencimento para as parcelas seguintes ainda não recebidas
+
+    PasswordResetRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+
+    VerifyPasswordResetRequest:
+      type: object
+      required: [email, code]
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          pattern: '^\d{6}$'
+          example: '230182'
+
+    ConfirmPasswordResetRequest:
+      type: object
+      required: [email, code, password]
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          pattern: '^\d{6}$'
+        password:
+          type: string
+          format: password
+          description: Mesma política do cadastro (8 a 128 caracteres, maiúscula, minúscula, número e caractere especial)
+          writeOnly: true
+
+    ExportDocument:
+      type: object
+      description: Arquivo gerado por GET /export e aceito por POST /import. Valores em centavos.
+      required: [format, version, exportedAt, accounts, billingRegistrations, recurringTransactions, receivables, transactions, goals]
+      properties:
+        format:
+          type: string
+          enum: [finapp-export]
+        version:
+          type: integer
+          enum: [1]
+        exportedAt:
+          type: string
+          format: date-time
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportAccount"
+        billingRegistrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportBillingRegistration"
+        recurringTransactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportRecurringTransaction"
+        receivables:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportReceivable"
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportTransaction"
+        goals:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportGoal"
+
+    ExportAccount:
+      type: object
+      required: [id, name, kind, hasYield, archivedAt, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Só liga os saldos à conta dentro do arquivo; a importação gera ids novos
+        name:
+          type: string
+        kind:
+          $ref: "#/components/schemas/AccountKind"
+        hasYield:
+          type: boolean
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    ExportBillingRegistration:
+      type: object
+      required: [delta, total, createdAt, entries]
+      properties:
+        delta:
+          type: integer
+          format: int64
+          nullable: true
+        total:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        entries:
+          type: array
+          items:
+            type: object
+            required: [accountId, accountName, amount]
+            properties:
+              accountId:
+                type: integer
+                format: int64
+                description: Id de uma conta em accounts deste arquivo
+              accountName:
+                type: string
+              amount:
+                type: integer
+                format: int64
+
+    ExportInstallment:
+      type: object
+      required: [number, amount, dueDate, paidAt]
+      properties:
+        number:
+          type: integer
+        amount:
+          type: integer
+          format: int64
+        dueDate:
+          type: string
+          format: date
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ExportRecurringTransaction:
+      type: object
+      required: [description, kind, isFixed, amount, startMonth, intervalMonths, endMonth, dayOfMonth, archivedAt, createdAt, installments]
+      properties:
+        description:
+          type: string
+        kind:
+          type: string
+          enum: [income, expense]
+        isFixed:
+          type: boolean
+        amount:
+          type: integer
+          format: int64
+        startMonth:
+          type: string
+          format: date
+          description: Primeiro dia do mês de início
+        intervalMonths:
+          type: integer
+        endMonth:
+          type: string
+          format: date
+          nullable: true
+        dayOfMonth:
+          type: integer
+          nullable: true
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          description: Mantido na importação; a geração de parcelas parte do mês de cadastro
+        installments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportInstallment"
+
+    ExportReceivable:
+      type: object
+      required: [kind, debtor, description, amount, interestRate, archivedAt, createdAt, installments]
+      properties:
+        kind:
+          type: string
+          enum: [split, loan]
+        debtor:
+          type: string
+        description:
+          type: string
+        amount:
+          type: integer
+          format: int64
+        amountMode:
+          $ref: "#/components/schemas/ReceivableAmountMode"
+        interestRate:
+          type: integer
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        installments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportInstallment"
+
+    ExportTransaction:
+      type: object
+      required: [kind, amountMinor, necessityLevel, description, category, paymentMethod, installments, occurredAt, createdAt]
+      properties:
+        kind:
+          type: string
+          enum: [income, expense]
+        amountMinor:
+          type: integer
+          format: int64
+        necessityLevel:
+          type: integer
+          nullable: true
+        description:
+          type: string
+        category:
+          type: string
+        paymentMethod:
+          type: string
+          nullable: true
+        installments:
+          type: integer
+        occurredAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    ExportGoal:
+      type: object
+      required: [name, targetMinor, savedMinor, createdAt, updatedAt]
+      properties:
+        name:
+          type: string
+        targetMinor:
+          type: integer
+          format: int64
+        savedMinor:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time

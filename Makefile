@@ -43,11 +43,11 @@ migrate-force: ## destrava migration que falhou no meio (dirty): make migrate-fo
 	@test -n "$(version)" || { echo "uso: make migrate-force version=N"; exit 1; }
 	@$(LOAD_ENV) go run ./cmd/migrate force $(version)
 
-docker-up: ## sobe banco + API com hot reload no Docker
+docker-up: ## sobe o PostgreSQL no Docker (a API roda com make dev)
 	docker compose up -d --build
 
-docker-down: ## para os containers (os dados do banco ficam no volume)
+docker-down: ## para o PostgreSQL (os dados ficam no volume)
 	docker compose down
 
-docker-logs: ## acompanha os logs da API no Docker
-	docker compose logs -f api
+docker-logs: ## acompanha os logs do PostgreSQL
+	docker compose logs -f db

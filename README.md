@@ -54,24 +54,16 @@ Por baixo das duas está a **identidade**: `users` e `sessions`. Todo dado finan
    ```bash
    cp .env.example .env
    ```
-2. Escolha como rodar. Nos dois jeitos as migrations são aplicadas sozinhas quando a API inicia, e salvar um `.go` ou `.sql` recompila a API (air):
-   - **Tudo no Docker** (banco + API com hot reload em `http://localhost:8080`; não precisa de Go instalado):
-     ```bash
-     make docker-up
-     ```
-     Logs (inclusive o código de recuperação de senha sem SMTP): `make docker-logs`. Parar: `make docker-down`.
-   - **Só o banco no Docker e a API local:**
-     ```bash
-     docker compose up -d db
-     ```
-     ```bash
-     make dev
-     ```
-     `make dev` carrega o `.env` e roda o [air](https://github.com/air-verse/air) (instala a versão fixada no Makefile na primeira vez).
-
-     Não suba os dois jeitos ao mesmo tempo: ambos usam a porta 8080 (`FINAPP_PORT` muda a porta da API do compose; `HTTP_ADDR` a da API local).
-3. Se a porta 5432 já estiver ocupada por outro Postgres, troque `POSTGRES_PORT` no `.env`; a API do compose continua falando com o banco pela rede interna.
-4. Documentação interativa (Swagger) em `http://localhost:8080/docs/` e especificação em `/openapi.json`.
+2. Suba o banco (PostgreSQL no Docker; o compose lê o `.env`):
+   ```bash
+   make docker-up
+   ```
+3. Rode a API com hot reload. `make dev` carrega o `.env` e roda o [air](https://github.com/air-verse/air) (instala a versão fixada no Makefile na primeira vez). As migrations são aplicadas sozinhas quando a API inicia, e salvar um `.go` ou `.sql` recompila a API. Sem SMTP configurado, o código de recuperação de senha aparece neste terminal.
+   ```bash
+   make dev
+   ```
+4. Se a porta 5432 já estiver ocupada por outro Postgres, troque `POSTGRES_PORT` no `.env` (o banco e a API usam o mesmo valor).
+5. Documentação interativa (Swagger) com **todas** as rotas em `http://localhost:8080/docs/`; a especificação está em `/openapi.json`.
 
 `make` sem argumentos lista todos os comandos.
 
@@ -116,7 +108,7 @@ Os testes de integração com PostgreSQL só rodam com `TEST_DATABASE_URL` apont
 TEST_DATABASE_URL='postgres://finapp:change-me@localhost:5432/finapp_test?sslmode=disable' go test -race -count=1 ./...
 ```
 
-Ao mudar `docs/openapi.yaml`, regenere o código com `go generate ./internal/api` (o CI confere se o arquivo gerado está em dia).
+Ao mudar `docs/openapi.yaml`, regenere o código com `go generate ./internal/api`. Ele gera `openapi.gen.go` (rotas e tipos; o CI confere se está em dia) e `spec.gen.go` (spec do `/docs`).
 
 ---
 
@@ -124,10 +116,11 @@ Ao mudar `docs/openapi.yaml`, regenere o código com `go generate ./internal/api
 
 ```
 cmd/api/main.go            composição: config → migrations → pool → serviços → rotas
-docs/openapi.yaml          contrato das rotas "OpenAPI" (fonte da verdade delas)
-migrations/                SQL versionado (000001..000009)
+docs/openapi.yaml          contrato de todas as rotas (é o que o /docs mostra)
+migrations/                SQL versionado (000001..000012)
 
-internal/api/              handlers das rotas OpenAPI + código gerado + middleware de sessão
+internal/api/              handlers das rotas OpenAPI, middleware de sessão e código gerado:
+                           openapi.gen.go (rotas e tipos) e spec.gen.go (spec completo do /docs)
 internal/auth/             login e validação de token
 internal/user/             cadastro, listagem e edição de usuário
 internal/transaction/      lançamentos (domínio)
@@ -140,12 +133,16 @@ internal/account/          contas                          ┐
 internal/billing/          registros de saldo e projeção   │ módulos de saldo:
 internal/recurring/        entradas/despesas planejadas    │ controller → service → repository (sqlx)
 internal/receivable/       valores a receber               ┘
+internal/passwordreset/    recuperação de senha por código
+internal/dataexport/       exportação e importação dos dados do usuário
 ```
 
 São dois estilos convivendo:
 
 - **Rotas OpenAPI** (`/users`, `/sessions`, `/transactions`, `/goals`, `/dashboard`): o contrato está em `docs/openapi.yaml`, o `oapi-codegen` gera a interface e o registro das rotas, e os handlers em `internal/api` chamam serviços de domínio que não conhecem Gin nem GORM.
-- **Módulos de saldo** (`/accounts`, `/billings`, `/recurring-transactions`, `/receivables`): cada módulo é autocontido (`controller.go`, `service.go`, `repository.go`, `routes.go`) e é montado em `cmd/api/main.go` por `registerBalanceModules`, atrás do middleware `api.Server.RequireSession`. Eles **não estão** no `openapi.yaml` nem no Swagger; este README é a referência deles.
+- **Módulos de saldo** (`/accounts`, `/billings`, `/recurring-transactions`, `/receivables`): cada módulo é autocontido (`controller.go`, `service.go`, `repository.go`, `routes.go`) e é montado em `cmd/api/main.go` por `registerBalanceModules`, atrás do middleware `api.Server.RequireSession`. A recuperação de senha (`/password-resets`, pública) e o backup (`/export`, `/import`) seguem o mesmo estilo.
+
+As rotas dos dois estilos estão documentadas no `docs/openapi.yaml`. As registradas à mão usam tags que o gerador de rotas ignora (`exclude-tags` em `internal/api/config.yaml`: Accounts, Billings, Recurring transactions, Receivables, Password resets e Data). O spec completo, com essas tags, é gerado à parte (`internal/api/spec.config.yaml` → `spec.gen.go`) e é o que o `/docs` serve. Ao criar uma rota registrada à mão, documente-a no YAML com uma dessas tags (ou acrescente a tag nova à lista); sem isso, o gerador tentaria registrar a rota de novo.
 
 O pool de conexões é um só: `sqlx.NewDb(pool, "pgx")` reaproveita o `*sql.DB` do GORM.
 
@@ -813,7 +810,6 @@ Migrations: `000001`–`000005` (users, transactions, sessions, goals), `000006`
 **Geral**
 
 - Não há logout no servidor (o cliente descarta o token), renovação de sessão nem limpeza de sessões expiradas ou de códigos de recuperação vencidos.
-- Os módulos de saldo **não estão no `openapi.yaml`/Swagger**.
 - Os módulos de saldo e a recuperação de senha usam o binding do Gin: não exigem `Content-Type`, não limitam o tamanho do corpo e ignoram campos desconhecidos (as rotas OpenAPI fazem os três). Erros de validação voltam traduzidos (`api.BindError`); erros `500` respondem uma mensagem genérica em português e a causa vai para o log (`api.InternalError`).
 - As rotas não têm barra no final. `/accounts/` redireciona para `/accounts` (301 em `GET`, 307 nos demais).
 - `transactions` e `recurring-transactions` são independentes: marcar uma parcela como paga não cria lançamento, e lançar um gasto não baixa parcela.

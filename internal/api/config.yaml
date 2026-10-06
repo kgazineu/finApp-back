@@ -4,4 +4,14 @@ output: openapi.gen.go
 generate:
   models: true
   gin-server: true
-  embedded-spec: true
+
+# Estas rotas são registradas à mão (módulos em internal/*, montados em cmd/api/main.go):
+# ficam documentadas no spec servido em /docs (spec.config.yaml), fora da interface gerada.
+output-options:
+  exclude-tags:
+    - Accounts
+    - Billings
+    - Recurring transactions
+    - Receivables
+    - Password resets
+    - Data
