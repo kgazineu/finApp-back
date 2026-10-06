@@ -17,6 +17,7 @@ import (
 	"github.com/kgazineu/finApp-back/internal/auth"
 	"github.com/kgazineu/finApp-back/internal/billing"
 	"github.com/kgazineu/finApp-back/internal/config"
+	"github.com/kgazineu/finApp-back/internal/dataexport"
 	"github.com/kgazineu/finApp-back/internal/goal"
 	"github.com/kgazineu/finApp-back/internal/overview"
 	"github.com/kgazineu/finApp-back/internal/password"
@@ -65,6 +66,9 @@ func registerBalanceModules(router gin.IRouter, server *api.Server, db *sqlx.DB)
 
 	billings := billing.NewModule(db, accounts.Service(), transactions.Service(), receivables.Service())
 	billings.RegisterRoutes(protected.Group("/billings"))
+
+	// GET /export e POST /import: backup de todos os dados do usuário
+	dataexport.NewModule(db).RegisterRoutes(protected)
 }
 
 func main() {

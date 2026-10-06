@@ -19,7 +19,7 @@ var fieldLabels = map[string]string{
 	"StartMonth": "mês de início", "IntervalMonths": "intervalo de meses", "Installments": "parcelas",
 	"DayOfMonth": "dia do mês", "EndMonth": "mês final", "Paid": "pago", "Debtor": "devedor",
 	"InterestRate": "juros", "FirstDueDate": "primeiro vencimento", "Email": "e-mail",
-	"Code": "código", "Password": "senha",
+	"Code": "código", "Password": "senha", "AmountMode": "forma de informar o valor", "DueDate": "vencimento",
 }
 
 // BindError translates a Gin binding error (malformed JSON or failed validation) into Portuguese.

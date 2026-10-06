@@ -23,19 +23,19 @@ func TestCalculate(t *testing.T) {
 
 	first := newReg(0, 10000, 5000)
 	calculate(first, kinds, nil)
-	if first.total != 5000 || first.delta != 0 {
-		t.Fatalf("first: total=%d delta=%d", first.total, first.delta)
+	if first.total != 5000 || first.delta != nil {
+		t.Fatalf("first: total=%d delta=%v (o primeiro registro não tem delta)", first.total, first.delta)
 	}
 
 	second := newReg(0, 10050, 5500)
 	calculate(second, kinds, first)
-	if second.total != 4550 || second.delta != -450 {
-		t.Fatalf("second: total=%d delta=%d", second.total, second.delta)
+	if second.total != 4550 || second.delta == nil || *second.delta != -450 {
+		t.Fatalf("second: total=%d delta=%v", second.total, second.delta)
 	}
 
 	third := newReg(0, 16050, 5500)
 	calculate(third, kinds, second)
-	if third.total != 10550 || third.delta != 6000 {
-		t.Fatalf("third: total=%d delta=%d", third.total, third.delta)
+	if third.total != 10550 || third.delta == nil || *third.delta != 6000 {
+		t.Fatalf("third: total=%d delta=%v", third.total, third.delta)
 	}
 }

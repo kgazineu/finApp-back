@@ -27,8 +27,14 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, rec *Receivable,
 	if rec.Kind == KindSplit && (rec.InterestRate != 0 || installments != 1) {
 		return nil, fmt.Errorf("%w: conta dividida não pode ter juros nem mais de uma parcela", ErrInvalidReceivable)
 	}
+	if rec.AmountMode == "" {
+		rec.AmountMode = AmountTotal
+	}
+	if rec.AmountMode == AmountInstallment && rec.InterestRate != 0 {
+		return nil, fmt.Errorf("%w: com valor por parcela não há juros para calcular; informe o valor de cada parcela já com os juros", ErrInvalidReceivable)
+	}
 
-	rec.Installments = buildInstallments(rec.Amount, rec.InterestRate, installments, firstDueDate)
+	rec.Installments = buildInstallments(rec.Amount, rec.AmountMode, rec.InterestRate, installments, firstDueDate)
 
 	return s.repo.Create(ctx, userID, rec)
 }
@@ -57,12 +63,19 @@ func (s *Service) FindPaidInstallments(ctx context.Context, userID uuid.UUID, si
 	return s.repo.FindPaidInstallments(ctx, userID, since)
 }
 
-func (s *Service) SetInstallmentPaid(ctx context.Context, userID uuid.UUID, id int64, paid bool) (*Installment, error) {
-	return s.repo.SetInstallmentPaid(ctx, userID, id, paid)
+func (s *Service) UpdateInstallment(ctx context.Context, userID uuid.UUID, id int64, changes InstallmentChanges) (*Installment, error) {
+	if changes.Paid == nil && changes.Amount == nil && changes.DueDate == nil {
+		return nil, fmt.Errorf("%w: informe o que alterar na parcela (recebida, valor ou vencimento)", ErrInvalidReceivable)
+	}
+	return s.repo.UpdateInstallment(ctx, userID, id, changes)
 }
 
-func buildInstallments(amount int64, interestRate, n int, firstDueDate time.Time) []*Installment {
-	total := amount + amount*int64(interestRate)/100
+func buildInstallments(amount int64, mode AmountMode, interestRate, n int, firstDueDate time.Time) []*Installment {
+	// valor por parcela: cada uma vale exatamente o informado
+	total := amount * int64(n)
+	if mode == AmountTotal {
+		total = amount + amount*int64(interestRate)/100
+	}
 	base := total / int64(n)
 
 	installments := make([]*Installment, n)

@@ -27,6 +27,7 @@ Por baixo das duas está a **identidade**: `users` e `sessions`. Todo dado finan
 - [Módulo: Billings (registros de saldo e projeção)](#módulo-billings-registros-de-saldo-e-projeção)
 - [Módulo: Recurring transactions (entradas e despesas planejadas)](#módulo-recurring-transactions-entradas-e-despesas-planejadas)
 - [Módulo: Receivables (valores a receber)](#módulo-receivables-valores-a-receber)
+- [Exportar e importar dados (backup)](#exportar-e-importar-dados-backup)
 - [Fluxos](#fluxos)
 - [Uso ideal](#uso-ideal)
 - [Modelo de dados](#modelo-de-dados)
@@ -396,14 +397,14 @@ Resposta:
    - Conta de outro usuário nunca bate com as suas → `400`
 2. Cada valor é o **saldo da conta**, em centavos, **sempre ≥ 0**. A fatura do cartão vai positiva: quem diz que ela subtrai é o tipo da conta.
 3. **Total** = soma das contas `asset` − soma das contas `liability`.
-4. **Delta** = total deste registro − total do seu registro anterior (`0` no primeiro).
+4. **Delta** = total deste registro − total do seu registro anterior. O **primeiro registro não tem delta** (`null`): não há com o que comparar.
 5. O **nome da conta é copiado** para o lançamento (`accountName`): renomear a conta depois não muda o histórico.
 6. Registro e lançamentos são gravados numa **transação de banco**.
 7. Registros não têm edição nem exclusão.
 
 | Registro | Inter (asset) | Mercado Pago (asset) | Fatura (liability) | Total | Delta |
 |---|---|---|---|---|---|
-| 1º | 0 | 10000 | 5000 | 5000 | 0 |
+| 1º | 0 | 10000 | 5000 | 5000 | — |
 | 2º | 0 | 10050 | 5500 | 4550 | −450 |
 | 3º | 0 | 16050 | 5500 | 10550 | 6000 |
 
@@ -589,7 +590,14 @@ Dinheiro que alguém te deve. Diferente das recurring transactions, **todas as p
 
 ### Regras de negócio
 
-**1. Valor das parcelas**
+**1. Valor das parcelas**: na criação, `amountMode` diz o que é o `amount`:
+
+| `amountMode` | O `amount` é | Exemplo |
+|---|---|---|
+| `total` (padrão) | o valor total, **dividido** entre as parcelas | emprestou R$ 1.000 em 3x |
+| `installment` | o valor de **cada** parcela | assinatura de R$ 50 por mês, 12 meses |
+
+Com `installment`, cada parcela vale exatamente o `amount` e **não há juros** (`interestRate` diferente de 0 → `400`; informe a parcela já com os juros). As regras abaixo são do modo `total`:
 
 - `amount` é o valor **sem juros**; `interestRate` é um **percentual inteiro, juros simples sobre o total** (`5` = 5%).
 - Total com juros = `amount + amount × interestRate / 100` (divisão inteira).
@@ -604,9 +612,20 @@ Dinheiro que alguém te deve. Diferente das recurring transactions, **todas as p
 
 **2. Vencimentos**: a 1ª parcela vence em `firstDueDate`; as seguintes, mês a mês, sempre calculadas **a partir da primeira data** e sem transbordar: 31/10 → 30/11 → 31/12.
 
+`firstDueDate` **pode ser no passado** (empréstimo que começou em agosto, cadastrado em outubro): as parcelas já vencidas nascem atrasadas e a própria pessoa marca as que já foram recebidas. As que não forem marcadas continuam pendentes e entram na projeção.
+
 **3. Criação atômica**: receivable e parcelas numa transação de banco.
 
-**4. Editar** só altera `debtor` e `description`.
+**4. Editar**: `PATCH /receivables/:id` altera `debtor` e `description`. Valor e vencimento são editados **por parcela** (`PATCH /receivables/installments/:id`):
+
+```json
+{ "amount": 6000, "dueDate": "2026-10-20", "applyToFollowing": true }
+```
+
+- Campos opcionais, em qualquer combinação, junto ou não com `paid`. Sem nenhum → `400`.
+- `applyToFollowing: true` leva o novo valor e o novo vencimento (mês a mês a partir da nova data) para as **parcelas seguintes ainda não recebidas** — o caso do aumento de uma assinatura.
+- Parcelas recebidas nunca mudam em lote; a parcela editada muda mesmo se já recebida (correção explícita).
+- Tudo numa transação de banco; parcela de outro usuário → `404`.
 
 **5. Apagar**: parcelas não recebidas são apagadas; sobrando alguma recebida, o receivable é **arquivado**. Resposta: `{"archived": true|false}`.
 
@@ -622,12 +641,12 @@ Dinheiro que alguém te deve. Diferente das recurring transactions, **todas as p
 | `DELETE` | `/receivables/:id` | Apaga ou arquiva |
 | `GET` | `/receivables/installments/pending` | **Todas** as parcelas não recebidas (sem limite de data) |
 | `GET` | `/receivables/installments/paid` | Parcelas recebidas nos últimos 30 dias |
-| `PATCH` | `/receivables/installments/:id` | Marca/desmarca como recebida (`{"paid": true}`) |
+| `PATCH` | `/receivables/installments/:id` | Marca/desmarca como recebida (`{"paid": true}`) e/ou edita valor e vencimento |
 
 ```json
 {
   "kind": "loan", "debtor": "João", "description": "Bicicleta",
-  "amount": 100000, "interestRate": 5, "installments": 2, "firstDueDate": "2026-10-31"
+  "amount": 100000, "amountMode": "total", "interestRate": 5, "installments": 2, "firstDueDate": "2026-10-31"
 }
 ```
 
@@ -636,7 +655,7 @@ Dinheiro que alguém te deve. Diferente das recurring transactions, **todas as p
 ```json
 {
   "id": 4, "kind": "loan", "debtor": "João", "description": "Bicicleta",
-  "amount": 100000, "interestRate": 5,
+  "amount": 100000, "amountMode": "total", "interestRate": 5,
   "installments": [
     { "id": 9, "number": 1, "amount": 52500, "dueDate": "2026-10-31", "paidAt": null, "overdue": false },
     { "id": 10, "number": 2, "amount": 52500, "dueDate": "2026-11-30", "paidAt": null, "overdue": false }
@@ -644,6 +663,22 @@ Dinheiro que alguém te deve. Diferente das recurring transactions, **todas as p
   "createdAt": "2026-10-03T19:24:00Z"
 }
 ```
+
+---
+
+## Exportar e importar dados (backup)
+
+Para levar os dados de um usuário para outro servidor/banco sem cadastrar tudo de novo. Ambas as rotas exigem sessão.
+
+| Método | Rota | O que faz |
+|---|---|---|
+| `GET` | `/export` | devolve um JSON (`format: "finapp-export"`, `version: 1`) com contas (inclusive arquivadas), registros de saldo com lançamentos, transações planejadas e valores a receber com as parcelas (pagas ou não), lançamentos e metas |
+| `POST` | `/import` | recebe esse JSON e recria tudo na conta da sessão |
+
+- A importação só aceita uma **conta sem dados** (`409` se já houver algo), assim nada é duplicado. O fluxo é: crie a conta no servidor novo, entre e importe.
+- É tudo ou nada: uma transação de banco. Arquivo de outro formato ou com dados que violam as regras do banco → `400`; acima de 20 MB → `413`.
+- Os ids não viajam: cada registro ganha id novo e as ligações (conta do lançamento, pai da parcela) são refeitas. Datas de criação, arquivamento e pagamento são mantidas, então a geração de parcelas e a projeção continuam iguais.
+- No web, fica em **Perfil → Seus dados**. Para migrar o banco inteiro (todos os usuários) de uma vez, `pg_dump`/`pg_restore` continua sendo o caminho.
 
 ---
 
@@ -746,7 +781,8 @@ recurring_transactions ◄── recurring_transaction_installments          ◄
 receivables ◄───────────── receivable_installments                     ◄───────┘
   id, user_id, kind, debtor,  id, receivable_id (sem cascade),
   description, amount,        number, amount (com juros), due_date, paid_at
-  interest_rate, archived_at  UNIQUE (receivable_id, number)
+  amount_mode, interest_rate, UNIQUE (receivable_id, number)
+  archived_at
 ```
 
 Parcelas e lançamentos de saldo não têm `user_id`: pertencem ao usuário dono do registro pai, e toda consulta a eles faz o `join` para checar isso.
@@ -768,7 +804,7 @@ Regras garantidas pelo banco:
 
 `paid_at` nulo = não pago/recebido. `archived_at` nulo = ativo.
 
-Migrations: `000001`–`000005` (users, transactions, sessions, goals), `000006`–`000009` (accounts, billings, recurring transactions, receivables) e `000010` (password resets).
+Migrations: `000001`–`000005` (users, transactions, sessions, goals), `000006`–`000009` (accounts, billings, recurring transactions, receivables), `000010` (password resets), `000011` (modo do valor dos receivables) e `000012` (primeiro registro de saldo sem delta).
 
 ---
 

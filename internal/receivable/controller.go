@@ -19,17 +19,22 @@ func NewController(s *Service) *Controller {
 }
 
 type CreateReceivableRequest struct {
-	Kind         Kind   `json:"kind" binding:"required,oneof=split loan"`
-	Debtor       string `json:"debtor" binding:"required"`
-	Description  string `json:"description" binding:"required"`
-	Amount       int64  `json:"amount" binding:"required,gt=0"`
-	InterestRate int    `json:"interestRate" binding:"gte=0"`
-	Installments int    `json:"installments" binding:"gte=0,lte=120"`
-	FirstDueDate string `json:"firstDueDate" binding:"required"`
+	Kind         Kind       `json:"kind" binding:"required,oneof=split loan"`
+	Debtor       string     `json:"debtor" binding:"required"`
+	Description  string     `json:"description" binding:"required"`
+	Amount       int64      `json:"amount" binding:"required,gt=0"`
+	AmountMode   AmountMode `json:"amountMode" binding:"omitempty,oneof=total installment"` // vazio = total
+	InterestRate int        `json:"interestRate" binding:"gte=0"`
+	Installments int        `json:"installments" binding:"gte=0,lte=120"`
+	FirstDueDate string     `json:"firstDueDate" binding:"required"` // pode ser no passado
 }
 
-type SetPaidRequest struct {
-	Paid *bool `json:"paid" binding:"required"` // ponteiro: sem ele, false seria tratado como "não enviado"
+// UpdateInstallmentRequest: qualquer combinação dos campos. Ponteiros distinguem "não enviado" de false/0.
+type UpdateInstallmentRequest struct {
+	Paid             *bool   `json:"paid"`
+	Amount           *int64  `json:"amount" binding:"omitempty,gt=0"`
+	DueDate          *string `json:"dueDate"`
+	ApplyToFollowing bool    `json:"applyToFollowing"`
 }
 
 type UpdateReceivableRequest struct {
@@ -52,6 +57,7 @@ type ReceivableResponse struct {
 	Debtor       string                `json:"debtor"`
 	Description  string                `json:"description"`
 	Amount       int64                 `json:"amount"`
+	AmountMode   AmountMode            `json:"amountMode"`
 	InterestRate int                   `json:"interestRate"`
 	Installments []InstallmentResponse `json:"installments"`
 	CreatedAt    time.Time             `json:"createdAt"`
@@ -96,6 +102,7 @@ func ToReceivableResponse(r *Receivable, now time.Time) ReceivableResponse {
 		Debtor:       r.Debtor,
 		Description:  r.Description,
 		Amount:       r.Amount,
+		AmountMode:   r.AmountMode,
 		InterestRate: r.InterestRate,
 		Installments: installments,
 		CreatedAt:    r.CreatedAt,
@@ -120,6 +127,7 @@ func (ctrl *Controller) Create(c *gin.Context) {
 		Debtor:       req.Debtor,
 		Description:  req.Description,
 		Amount:       req.Amount,
+		AmountMode:   req.AmountMode,
 		InterestRate: req.InterestRate,
 	}, max(req.Installments, 1), firstDueDate)
 	if errors.Is(err, ErrInvalidReceivable) {
@@ -167,22 +175,36 @@ func (ctrl *Controller) FindPaidInstallments(c *gin.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
-func (ctrl *Controller) SetInstallmentPaid(c *gin.Context) {
+func (ctrl *Controller) UpdateInstallment(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "id inválido"})
 		return
 	}
 
-	var req SetPaidRequest
+	var req UpdateInstallmentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": api.BindError(err)})
 		return
 	}
 
-	inst, err := ctrl.service.SetInstallmentPaid(c.Request.Context(), api.UserID(c), id, *req.Paid)
+	changes := InstallmentChanges{Paid: req.Paid, Amount: req.Amount, ApplyToFollowing: req.ApplyToFollowing}
+	if req.DueDate != nil {
+		due, err := time.Parse(time.DateOnly, *req.DueDate)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "O vencimento deve estar no formato AAAA-MM-DD"})
+			return
+		}
+		changes.DueDate = &due
+	}
+
+	inst, err := ctrl.service.UpdateInstallment(c.Request.Context(), api.UserID(c), id, changes)
 	if errors.Is(err, ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+		return
+	}
+	if errors.Is(err, ErrInvalidReceivable) {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 	if err != nil {

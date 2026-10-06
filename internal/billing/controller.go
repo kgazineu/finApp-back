@@ -29,7 +29,7 @@ type BillingEntryResponse struct {
 
 type BillingResponse struct {
 	ID        int64                  `json:"id"`
-	Delta     int64                  `json:"delta"`
+	Delta     *int64                 `json:"delta"`
 	Total     int64                  `json:"total"`
 	Entries   []BillingEntryResponse `json:"entries"`
 	CreatedAt time.Time              `json:"createdAt"`

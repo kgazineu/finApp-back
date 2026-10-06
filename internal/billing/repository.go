@@ -21,7 +21,7 @@ func NewRepository(db *sqlx.DB) *Repository {
 type billingRegistration struct {
 	ID        int64     `db:"id"`
 	UserID    uuid.UUID `db:"user_id"`
-	Delta     int64     `db:"delta"`
+	Delta     *int64    `db:"delta"`
 	Total     int64     `db:"total"`
 	CreatedAt time.Time `db:"created_at"`
 }
