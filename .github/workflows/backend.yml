@@ -109,12 +109,41 @@ jobs:
       - X64
     timeout-minutes: 10
 
+    env:
+      DEPLOY_DIR: /opt/finapp-back
+
     steps:
-      - name: Atualizar API
+      - name: Baixar compose de produção
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: compose.prod.yaml
+          sparse-checkout-cone-mode: false
+
+      # Valida o compose novo contra o .env do servidor antes de trocar o container:
+      # variável obrigatória ausente falha aqui, sem derrubar a versão em execução.
+      - name: Validar configuração
         run: |
-          cd /opt/finapp-back
+          trap 'rm -f "$DEPLOY_DIR/compose.yaml.new"' EXIT
+          install -m 0644 compose.prod.yaml "$DEPLOY_DIR/compose.yaml.new"
+          docker compose --project-directory "$DEPLOY_DIR" \
+            -f "$DEPLOY_DIR/compose.yaml.new" config --quiet
+          mv "$DEPLOY_DIR/compose.yaml.new" "$DEPLOY_DIR/compose.yaml"
+
+      - name: Atualizar API
+        env:
+          # mesma imagem publicada por este commit, não a latest do momento
+          APP_VERSION: ${{ github.sha }}
+        run: |
+          cd "$DEPLOY_DIR"
           docker compose pull app
           docker compose up -d --wait --wait-timeout 120 app
           docker compose ps
           curl --fail --silent --show-error \
             http://127.0.0.1:8080/health
+
+      # docker puro: o compose recusa qualquer comando quando o .env está incompleto
+      - name: Diagnóstico
+        if: failure()
+        run: |
+          docker ps -a --filter label=com.docker.compose.project=finapp-back
+          docker logs --tail 50 finapp-back-app-1 || true
