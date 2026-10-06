@@ -14,7 +14,7 @@ type Module struct {
 
 type BillingRegistration struct {
 	ID        int64
-	delta     int64
+	delta     *int64 // nil no primeiro registro: não há com o que comparar
 	total     int64
 	entries   []*BillingEntry
 	CreatedAt time.Time

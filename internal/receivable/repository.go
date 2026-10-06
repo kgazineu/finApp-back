@@ -27,6 +27,7 @@ type receivableRow struct {
 	Debtor       string     `db:"debtor"`
 	Description  string     `db:"description"`
 	Amount       int64      `db:"amount"`
+	AmountMode   AmountMode `db:"amount_mode"`
 	InterestRate int        `db:"interest_rate"`
 	CreatedAt    time.Time  `db:"created_at"`
 	ArchivedAt   *time.Time `db:"archived_at"`
@@ -54,6 +55,7 @@ func (row receivableRow) toReceivable() *Receivable {
 		Debtor:       row.Debtor,
 		Description:  row.Description,
 		Amount:       row.Amount,
+		AmountMode:   row.AmountMode,
 		InterestRate: row.InterestRate,
 		CreatedAt:    row.CreatedAt,
 	}
@@ -79,9 +81,9 @@ func (r *Repository) Create(ctx context.Context, userID uuid.UUID, rec *Receivab
 
 	var recRow receivableRow
 	err = tx.QueryRowxContext(ctx, `
-		insert into receivables (user_id, kind, debtor, description, amount, interest_rate)
-		values ($1, $2, $3, $4, $5, $6) returning *
-	`, userID, rec.Kind, rec.Debtor, rec.Description, rec.Amount, rec.InterestRate).StructScan(&recRow)
+		insert into receivables (user_id, kind, debtor, description, amount, amount_mode, interest_rate)
+		values ($1, $2, $3, $4, $5, $6, $7) returning *
+	`, userID, rec.Kind, rec.Debtor, rec.Description, rec.Amount, rec.AmountMode, rec.InterestRate).StructScan(&recRow)
 	if err != nil {
 		return nil, err
 	}
@@ -183,16 +185,23 @@ func toPendingInstallments(rows []pendingInstallmentRow) []*PendingInstallment {
 	return pending
 }
 
-func (r *Repository) SetInstallmentPaid(ctx context.Context, userID uuid.UUID, id int64, paid bool) (*Installment, error) {
-	var row installmentRow
+// UpdateInstallment marca como recebida e/ou muda valor e vencimento de uma parcela do usuário.
+// Com ApplyToFollowing, as parcelas seguintes ainda não recebidas ganham o mesmo valor e
+// vencimentos mês a mês a partir da nova data. Parcelas recebidas nunca são alteradas em lote.
+func (r *Repository) UpdateInstallment(ctx context.Context, userID uuid.UUID, id int64, ch InstallmentChanges) (*Installment, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
 
-	err := r.db.QueryRowxContext(ctx, `
-		update receivable_installments i
-		set paid_at = case when $1 then coalesce(i.paid_at, now()) end
-		from receivables r
-		where i.id = $2 and r.id = i.receivable_id and r.user_id = $3
-		returning i.*
-	`, paid, id, userID).StructScan(&row)
+	var row installmentRow
+	err = tx.QueryRowxContext(ctx, `
+		select i.* from receivable_installments i
+		join receivables r on r.id = i.receivable_id
+		where i.id = $1 and r.user_id = $2
+		for update of i
+	`, id, userID).StructScan(&row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -200,7 +209,52 @@ func (r *Repository) SetInstallmentPaid(ctx context.Context, userID uuid.UUID, i
 		return nil, err
 	}
 
+	statements := []struct {
+		apply bool
+		query string
+		args  []any
+	}{
+		{ch.Paid != nil, `update receivable_installments set paid_at = case when $1 then coalesce(paid_at, now()) end where id = $2`,
+			[]any{ch.Paid, id}},
+		{ch.Amount != nil, `update receivable_installments set amount = $1 where id = $2`,
+			[]any{ch.Amount, id}},
+		{ch.Amount != nil && ch.ApplyToFollowing, `
+			update receivable_installments set amount = $1
+			where receivable_id = $2 and number > $3 and paid_at is null`,
+			[]any{ch.Amount, row.ReceivableID, row.Number}},
+		{ch.DueDate != nil, `update receivable_installments set due_date = $1 where id = $2`,
+			[]any{dateArg(ch.DueDate), id}},
+		// "data + n meses" no Postgres parte sempre da data base e não transborda (31/01 + 1 mês = 28/02)
+		{ch.DueDate != nil && ch.ApplyToFollowing, `
+			update receivable_installments set due_date = ($1::date + (number - $2) * interval '1 month')::date
+			where receivable_id = $3 and number > $2 and paid_at is null`,
+			[]any{dateArg(ch.DueDate), row.Number, row.ReceivableID}},
+	}
+	for _, st := range statements {
+		if !st.apply {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, st.query, st.args...); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.QueryRowxContext(ctx, `select * from receivable_installments where id = $1`, id).StructScan(&row); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
 	return row.toInstallment(), nil
+}
+
+// dateArg manda só a data ("2026-10-15"), sem fuso.
+func dateArg(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.Format(time.DateOnly)
 }
 
 func (r *Repository) FindAll(ctx context.Context, userID uuid.UUID) ([]*Receivable, error) {

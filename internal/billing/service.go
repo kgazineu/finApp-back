@@ -130,8 +130,9 @@ func calculate(reg *BillingRegistration, kinds map[int64]account.Kind, last *Bil
 		}
 	}
 
-	reg.delta = 0
+	reg.delta = nil // primeiro registro: delta só faz sentido em relação a um anterior
 	if last != nil {
-		reg.delta = reg.total - last.total
+		delta := reg.total - last.total
+		reg.delta = &delta
 	}
 }

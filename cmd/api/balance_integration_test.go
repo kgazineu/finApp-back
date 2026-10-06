@@ -84,10 +84,17 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 
 	// saldo: 10000 no banco − 3000 na fatura = 7000
 	entries := fmt.Sprintf(`{"entries":[{"accountId":%d,"amount":10000},{"accountId":%d,"amount":3000}]}`, bank.ID, card.ID)
-	var registration struct{ Total, Delta int64 }
+	var registration struct {
+		Total int64
+		Delta *int64
+	}
 	decode(call(http.MethodPost, "/billings", entries, alice, http.StatusCreated), &registration)
-	if registration.Total != 7000 || registration.Delta != 0 {
-		t.Fatalf("unexpected registration: %+v", registration)
+	if registration.Total != 7000 || registration.Delta != nil {
+		t.Fatalf("primeiro registro: total %d, delta %v (sem registro anterior não há delta)", registration.Total, registration.Delta)
+	}
+	decode(call(http.MethodPost, "/billings", entries, alice, http.StatusCreated), &registration)
+	if registration.Delta == nil || *registration.Delta != 0 {
+		t.Fatalf("segundo registro com o mesmo saldo deveria ter delta 0, veio %v", registration.Delta)
 	}
 
 	// despesa de 500 no dia 1 deste mês e empréstimo de 1000 vencendo hoje entram na projeção

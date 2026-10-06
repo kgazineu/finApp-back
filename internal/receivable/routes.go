@@ -11,5 +11,5 @@ func (m *Module) RegisterRoutes(r *gin.RouterGroup) {
 	r.DELETE("/:id", m.controller.Delete)
 	r.GET("/installments/pending", m.controller.FindPendingInstallments)
 	r.GET("/installments/paid", m.controller.FindPaidInstallments)
-	r.PATCH("/installments/:id", m.controller.SetInstallmentPaid)
+	r.PATCH("/installments/:id", m.controller.UpdateInstallment) // recebida, valor e/ou vencimento
 }
