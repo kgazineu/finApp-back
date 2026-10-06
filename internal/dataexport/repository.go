@@ -88,10 +88,11 @@ func (r *Repository) Export(ctx context.Context, userID uuid.UUID) (*Document, e
 	return doc, tx.Commit()
 }
 
-// Import grava o arquivo inteiro ou nada (uma transação). Só aceita conta vazia: assim não
-// há duplicatas nem mistura com dados existentes.
+// Import grava o arquivo inteiro ou nada (uma transação). Nunca mistura com dados existentes:
+// conta com dados só aceita replace, que apaga tudo antes de gravar. Arquivo com erro desfaz
+// também a limpeza, então os dados antigos continuam lá.
 // ponytail: um INSERT por linha; troque por unnest em lote se os arquivos ficarem grandes
-func (r *Repository) Import(ctx context.Context, userID uuid.UUID, doc *Document) (string, error) {
+func (r *Repository) Import(ctx context.Context, userID uuid.UUID, doc *Document, replace bool) (string, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return "", err
@@ -113,8 +114,24 @@ func (r *Repository) Import(ctx context.Context, userID uuid.UUID, doc *Document
 	if err != nil {
 		return "", err
 	}
-	if used {
+	if used && !replace {
 		return "", ErrNotEmpty
+	}
+	if used {
+		for _, query := range []string{
+			`delete from billing_registrations where user_id = $1`, // os lançamentos vão junto (cascade)
+			`delete from accounts where user_id = $1`,
+			`delete from recurring_transaction_installments i using recurring_transactions t where t.id = i.transaction_id and t.user_id = $1`,
+			`delete from recurring_transactions where user_id = $1`,
+			`delete from receivable_installments i using receivables r where r.id = i.receivable_id and r.user_id = $1`,
+			`delete from receivables where user_id = $1`,
+			`delete from transactions where user_id = $1`,
+			`delete from goals where user_id = $1`,
+		} {
+			if _, err := tx.ExecContext(ctx, query, userID); err != nil {
+				return "", err
+			}
+		}
 	}
 
 	insertID := func(query string, args ...any) (int64, error) {
@@ -209,8 +226,12 @@ func (r *Repository) Import(ctx context.Context, userID uuid.UUID, doc *Document
 		return "", err
 	}
 
-	return fmt.Sprintf("Importados: %d contas, %d registros de saldo, %d transações planejadas, %d valores a receber, %d lançamentos e %d metas.",
-		len(doc.Accounts), len(doc.BillingRegistrations), len(doc.RecurringTransactions), len(doc.Receivables), len(doc.Transactions), len(doc.Goals)), nil
+	summary := fmt.Sprintf("Importados: %d contas, %d registros de saldo, %d transações planejadas, %d valores a receber, %d lançamentos e %d metas.",
+		len(doc.Accounts), len(doc.BillingRegistrations), len(doc.RecurringTransactions), len(doc.Receivables), len(doc.Transactions), len(doc.Goals))
+	if used {
+		summary = "Seus dados anteriores foram substituídos. " + summary
+	}
+	return summary, nil
 }
 
 // invalidData converte violação de regra do banco (classes 22 e 23: tipo, enum, CHECK, NOT NULL...)

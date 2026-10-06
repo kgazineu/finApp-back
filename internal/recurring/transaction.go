@@ -87,7 +87,7 @@ func (t *Transaction) OccurrenceIn(month time.Time) (Occurrence, bool) {
 	return o, true
 }
 
-func (t *Transaction) InstallmentsBetween(from, until time.Time) []*Installment {
+func (t *Transaction) InstallmentsUntil(until time.Time) []*Installment {
 	var installments []*Installment
 
 	number := 0
@@ -95,10 +95,7 @@ func (t *Transaction) InstallmentsBetween(from, until time.Time) []*Installment 
 		if t.EndMonth != nil && month.After(*t.EndMonth) {
 			break
 		}
-		number++ // conta desde o StartMonth, mesmo nos meses que não são gerados
-		if month.Before(from) {
-			continue
-		}
+		number++
 
 		lastDay := time.Date(month.Year(), month.Month()+1, 0, 0, 0, 0, 0, time.UTC)
 		dueDate := lastDay

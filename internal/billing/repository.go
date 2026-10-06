@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kgazineu/finApp-back/internal/account"
 )
 
 type Repository struct {
@@ -27,11 +28,12 @@ type billingRegistration struct {
 }
 
 type billingEntry struct {
-	ID                    int64  `db:"id"`
-	BillingRegistrationID int64  `db:"billing_registration_id"`
-	AccountID             int64  `db:"account_id"`
-	AccountName           string `db:"account_name"`
-	Amount                int64  `db:"amount"`
+	ID                    int64        `db:"id"`
+	BillingRegistrationID int64        `db:"billing_registration_id"`
+	AccountID             int64        `db:"account_id"`
+	AccountName           string       `db:"account_name"`
+	AccountKind           account.Kind `db:"account_kind"`
+	Amount                int64        `db:"amount"`
 }
 
 func (row billingRegistration) toBillingRegistration() *BillingRegistration {
@@ -49,6 +51,7 @@ func (row billingEntry) toBillingEntry() *BillingEntry {
 		BillingRegistrationID: row.BillingRegistrationID,
 		AccountID:             row.AccountID,
 		AccountName:           row.AccountName,
+		AccountKind:           row.AccountKind,
 		Amount:                row.Amount,
 	}
 }
@@ -62,10 +65,12 @@ func (r *Repository) FindManyBillingRegistrations(ctx context.Context, userID uu
 		return nil, err
 	}
 
+	// ponytail: tipo atual da conta, não o da época do registro; guarde em billing_entries se mudar o tipo virar rotina
 	var entryRows []billingEntry
 	err = r.db.SelectContext(ctx, &entryRows, `
-		select e.* from billing_entries e
+		select e.*, a.kind as account_kind from billing_entries e
 		join billing_registrations r on r.id = e.billing_registration_id
+		join accounts a on a.id = e.account_id
 		where r.user_id = $1
 		order by e.id
 	`, userID)
@@ -130,9 +135,12 @@ func (r *Repository) createBillingRegistration(ctx context.Context, userID uuid.
 
 	var entryRows []billingEntry
 	err = tx.SelectContext(ctx, &entryRows, `
-		insert into billing_entries (billing_registration_id, account_id, account_name, amount)
-		select $1, unnest($2::bigint[]), unnest($3::text[]), unnest($4::bigint[])
-		returning *
+		with inserted as (
+			insert into billing_entries (billing_registration_id, account_id, account_name, amount)
+			select $1, unnest($2::bigint[]), unnest($3::text[]), unnest($4::bigint[])
+			returning *
+		)
+		select i.*, a.kind as account_kind from inserted i join accounts a on a.id = i.account_id order by i.id
 	`, regRow.ID, accountIDs, accountNames, amounts)
 	if err != nil {
 		return nil, err

@@ -73,11 +73,8 @@ func (s *Service) syncInstallments(ctx context.Context, userID uuid.UUID, until 
 
 	var installments []*Installment
 	for _, t := range transactions {
-		// meses antes de você cadastrar a transaction não viram parcela pendente
-		y, m, _ := t.CreatedAt.In(time.Local).Date()
-		createdMonth := time.Date(y, m, 1, 0, 0, 0, 0, time.UTC)
-
-		installments = append(installments, t.InstallmentsBetween(createdMonth, until)...)
+		// desde o mês de início, mesmo antes do cadastro: as vencidas ficam atrasadas até você marcar as já pagas
+		installments = append(installments, t.InstallmentsUntil(until)...)
 	}
 
 	return s.repo.InsertInstallments(ctx, installments)

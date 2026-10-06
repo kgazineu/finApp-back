@@ -93,10 +93,20 @@ func TestExportImportRoundTrip(t *testing.T) {
 
 	exported := call(http.MethodGet, "/export", "", alice, http.StatusOK)
 
-	// arquivo inválido e conta não vazia são recusados; a importação certa recria tudo
+	// arquivo inválido é recusado; a importação certa recria tudo
 	call(http.MethodPost, "/import", `{"format":"outro","version":1}`, bob, http.StatusBadRequest)
 	call(http.MethodPost, "/import", string(exported), bob, http.StatusOK)
+
+	// conta com dados: sem replace é 409 (o front pede confirmação); arquivo com erro desfaz a troca inteira
 	call(http.MethodPost, "/import", string(exported), bob, http.StatusConflict)
+	before := normalize(t, call(http.MethodGet, "/export", "", bob, http.StatusOK))
+	call(http.MethodPost, "/import?replace=true",
+		`{"format":"finapp-export","version":1,"accounts":[{"id":1,"name":"X","kind":"outro","createdAt":"2026-01-01T00:00:00Z"}]}`, bob, http.StatusBadRequest)
+	if after := normalize(t, call(http.MethodGet, "/export", "", bob, http.StatusOK)); after != before {
+		t.Fatalf("importação com erro mexeu nos dados:\nantes:  %s\ndepois: %s", before, after)
+	}
+	// com replace, troca tudo pelo arquivo, sem duplicar (comparado logo abaixo)
+	call(http.MethodPost, "/import?replace=true", string(exported), bob, http.StatusOK)
 
 	if a, b := normalize(t, exported), normalize(t, call(http.MethodGet, "/export", "", bob, http.StatusOK)); a != b {
 		t.Fatalf("exportação do Bob difere da da Alice:\nAlice: %s\nBob:   %s", a, b)

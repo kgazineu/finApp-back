@@ -16,6 +16,7 @@ import (
 	"github.com/kgazineu/finApp-back/internal/api"
 	"github.com/kgazineu/finApp-back/internal/auth"
 	"github.com/kgazineu/finApp-back/internal/billing"
+	"github.com/kgazineu/finApp-back/internal/cache"
 	"github.com/kgazineu/finApp-back/internal/config"
 	"github.com/kgazineu/finApp-back/internal/dataexport"
 	"github.com/kgazineu/finApp-back/internal/goal"
@@ -52,8 +53,9 @@ func newRouter(server api.ServerInterface, corsOrigins ...string) *gin.Engine {
 // registerBalanceModules mounts the balance-tracking modules (accounts, billings,
 // recurring transactions and receivables) behind the Bearer session middleware.
 // They are plain Gin routes, outside the OpenAPI-generated interface.
-func registerBalanceModules(router gin.IRouter, server *api.Server, db *sqlx.DB) {
-	protected := router.Group("", server.RequireSession)
+// Extra middleware (the Redis cache) runs after the session check.
+func registerBalanceModules(router gin.IRouter, server *api.Server, db *sqlx.DB, middleware ...gin.HandlerFunc) {
+	protected := router.Group("", append([]gin.HandlerFunc{server.RequireSession}, middleware...)...)
 
 	accounts := account.NewModule(db)
 	accounts.RegisterRoutes(protected.Group("/accounts"))
@@ -110,7 +112,23 @@ func run(ctx context.Context) error {
 	router := newRouter(apiServer, cfg.CORSOrigins...)
 	// same pool as GORM; "pgx" is the database/sql driver registered by gorm.io/driver/postgres
 	sqlDB := sqlx.NewDb(pool, "pgx")
-	registerBalanceModules(router, apiServer, sqlDB)
+	var balanceMiddleware []gin.HandlerFunc
+	if cfg.RedisURL != "" {
+		responses, err := cache.New(cfg.RedisURL)
+		if err != nil {
+			return err
+		}
+		defer responses.Close()
+		clearing, cancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := responses.Clear(clearing); err != nil {
+			slog.Warn("Redis indisponível: a API segue sem cache até ele responder", "error", err)
+		} else {
+			slog.Info("cache Redis ativo")
+		}
+		cancel()
+		balanceMiddleware = append(balanceMiddleware, responses.Middleware)
+	}
+	registerBalanceModules(router, apiServer, sqlDB, balanceMiddleware...)
 	passwordreset.NewModule(sqlDB, passwordreset.NewMailer(cfg.SMTP), password.Hasher{}).
 		RegisterRoutes(router.Group("/password-resets"))
 	server := &http.Server{

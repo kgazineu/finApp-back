@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/kgazineu/finApp-back/internal/account"
 	"github.com/kgazineu/finApp-back/internal/receivable"
 	"github.com/kgazineu/finApp-back/internal/recurring"
 )
@@ -25,6 +26,7 @@ type BillingEntry struct {
 	BillingRegistrationID int64
 	AccountID             int64
 	AccountName           string
+	AccountKind           account.Kind // tipo atual da conta: separa saldo de fatura na tela
 	Amount                int64
 }
 

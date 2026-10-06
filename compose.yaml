@@ -19,5 +19,12 @@ services:
             timeout: 5s
             retries: 5
 
+    redis:
+        image: redis:7-alpine
+        # só cache das respostas: nada vai para o disco
+        command: ["redis-server", "--save", "", "--appendonly", "no"]
+        ports:
+            - "${REDIS_PORT:-6379}:6379"
+
 volumes:
     postgres_data:

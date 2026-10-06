@@ -1,5 +1,6 @@
 // Package dataexport exporta todos os dados de um usuário num arquivo JSON e importa esse
-// arquivo numa conta vazia (outro servidor/banco, ou uma conta nova). Os ids do banco não
+// arquivo (outro servidor/banco, uma conta nova ou um backup). Conta com dados só recebe a
+// importação com replace=true, que troca tudo pelo conteúdo do arquivo. Os ids do banco não
 // viajam: na importação tudo ganha id novo e as referências (conta do lançamento, pai da
 // parcela) são refeitas. Datas de criação, arquivamento e pagamento são preservadas.
 package dataexport
@@ -23,7 +24,7 @@ const (
 )
 
 var (
-	ErrNotEmpty    = errors.New("a importação só pode ser feita numa conta sem dados: use uma conta nova")
+	ErrNotEmpty    = errors.New("você já tem dados cadastrados: para trocar tudo pelo conteúdo do arquivo, envie de novo com replace=true")
 	ErrInvalidFile = errors.New("arquivo de exportação inválido")
 )
 
@@ -143,6 +144,7 @@ func (m *Module) export(c *gin.Context) {
 	}
 
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="finapp-dados-%s.json"`, doc.ExportedAt.Format(time.DateOnly)))
+	c.Header("Cache-Control", "no-store") // dados pessoais completos: nem o cache da API nem o navegador guardam
 	c.JSON(http.StatusOK, doc)
 }
 
@@ -164,7 +166,7 @@ func (m *Module) importFile(c *gin.Context) {
 		return
 	}
 
-	summary, err := m.repo.Import(c.Request.Context(), api.UserID(c), &doc)
+	summary, err := m.repo.Import(c.Request.Context(), api.UserID(c), &doc, c.Query("replace") == "true")
 	if errors.Is(err, ErrNotEmpty) {
 		c.JSON(http.StatusConflict, gin.H{"message": err.Error()})
 		return

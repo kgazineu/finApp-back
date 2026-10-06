@@ -6,7 +6,9 @@ info:
     API de controle financeiro pessoal. Valores monetários são inteiros em centavos (R$ 6.505,50 = 650550).
     Rotas com cadeado exigem o token Bearer de POST /sessions; o dono de cada registro é sempre o usuário do
     token, e recurso de outro usuário responde 404. Erros vêm como {"message": "..."}, em português.
-  version: 0.2.0
+    Os GETs de contas, registros, transações planejadas e valores a receber podem vir do cache (cabeçalho
+    X-Cache: HIT ou MISS); qualquer escrita do usuário invalida o cache dele na hora.
+  version: 0.3.0
 
 servers:
   - url: http://localhost:8080
@@ -719,9 +721,10 @@ paths:
       operationId: getProjection
       summary: Registros de saldo e projeção do saldo futuro
       description: >-
-        Projeção para o primeiro dia depois do fim do N-ésimo mês (contando o atual como o primeiro):
-        total do último registro de saldos + entradas − despesas planejadas não pagas + valores a receber
-        não recebidos, com vencimento até lá (atrasados incluídos). Antes de calcular, gera as parcelas
+        Projeção para o dia 1 do N-ésimo mês depois do atual, contando tudo que vence até o fim desse mês
+        como se fosse pago nesse dia 1: total do último registro de saldos + entradas − despesas planejadas
+        não pagas + valores a receber não recebidos, com vencimento até o fim do mês da projeção (atrasados
+        incluídos). Em outubro, months=1 é 01/11 com novembro inteiro. Antes de calcular, gera as parcelas
         das transações planejadas que ainda não existem.
       tags: [Billings]
       security:
@@ -729,7 +732,7 @@ paths:
       parameters:
         - name: months
           in: query
-          description: Quantos meses à frente, contando o mês atual.
+          description: Quantos meses à frente (1 = dia 1 do mês que vem, com tudo que vence nele).
           schema:
             type: integer
             minimum: 1
@@ -803,8 +806,8 @@ paths:
       operationId: createRecurringTransaction
       summary: Cria uma entrada ou despesa planejada
       description: >-
-        As parcelas não nascem junto: são geradas sob demanda (pendentes ou projeção), a partir do mês
-        de cadastro; meses anteriores ao cadastro não viram parcela pendente.
+        As parcelas não nascem junto: são geradas sob demanda (pendentes ou projeção), desde o mês de
+        início. Começando no passado, as já vencidas aparecem atrasadas até serem marcadas como pagas.
       tags: [Recurring transactions]
       security:
         - bearerAuth: []
@@ -1256,7 +1259,8 @@ paths:
       summary: Exporta todos os dados do usuário
       description: >-
         Contas (inclusive arquivadas), registros de saldo, transações planejadas e valores a receber com as
-        parcelas, lançamentos e metas, numa foto consistente. Use o arquivo em POST /import.
+        parcelas, lançamentos e metas, numa foto consistente. Use o arquivo em POST /import. Responde com
+        Cache-Control: no-store (nunca fica em cache).
       tags: [Data]
       security:
         - bearerAuth: []
@@ -1275,13 +1279,22 @@ paths:
   /import:
     post:
       operationId: importData
-      summary: Importa um arquivo de exportação numa conta vazia
+      summary: Importa um arquivo de exportação
       description: >-
         Grava tudo ou nada (uma transação). Os registros ganham ids novos e as ligações são refeitas; datas de
-        criação, arquivamento e pagamento são mantidas. Só aceita conta sem dados (409 caso contrário).
+        criação, arquivamento e pagamento são mantidas. Conta vazia importa direto. Conta com dados recebe 409,
+        a menos que venha replace=true: aí todos os dados do usuário são apagados e trocados pelo arquivo, na
+        mesma transação (arquivo com erro desfaz também a limpeza).
       tags: [Data]
       security:
         - bearerAuth: []
+      parameters:
+        - name: replace
+          in: query
+          description: true troca todos os dados existentes pelo conteúdo do arquivo
+          schema:
+            type: boolean
+            default: false
       requestBody:
         required: true
         content:
@@ -1300,7 +1313,11 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          $ref: "#/components/responses/Conflict"
+          description: Você já tem dados cadastrados e não mandou replace=true
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "413":
           description: Arquivo maior que 20 MB
           content:
@@ -1779,7 +1796,7 @@ components:
 
     BillingEntryResponse:
       type: object
-      required: [id, accountId, accountName, amount]
+      required: [id, accountId, accountName, accountKind, amount]
       properties:
         id:
           type: integer
@@ -1790,6 +1807,8 @@ components:
         accountName:
           type: string
           description: Nome da conta na época do registro
+        accountKind:
+          $ref: "#/components/schemas/AccountKind"
         amount:
           type: integer
           format: int64
@@ -1830,7 +1849,7 @@ components:
         projectedFor:
           type: string
           format: date
-          description: Primeiro dia depois do período projetado
+          description: Dia 1 do mês da projeção; o que vence até o fim desse mês já está contado
         projectedAmount:
           type: integer
           format: int64
@@ -1980,7 +1999,7 @@ components:
           format: int64
         number:
           type: integer
-          description: Conta desde o mês de início, mesmo pulando meses anteriores ao cadastro
+          description: Conta desde o mês de início (1 = primeira)
         amount:
           type: integer
           format: int64
@@ -2339,7 +2358,7 @@ components:
         createdAt:
           type: string
           format: date-time
-          description: Mantido na importação; a geração de parcelas parte do mês de cadastro
+          description: Mantido na importação
         installments:
           type: array
           items:

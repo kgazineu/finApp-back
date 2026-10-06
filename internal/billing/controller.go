@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kgazineu/finApp-back/internal/account"
 	"github.com/kgazineu/finApp-back/internal/api"
 	"github.com/kgazineu/finApp-back/internal/receivable"
 	"github.com/kgazineu/finApp-back/internal/recurring"
@@ -21,10 +22,11 @@ func NewController(s *Service) *Controller {
 }
 
 type BillingEntryResponse struct {
-	ID          int64  `json:"id"`
-	AccountID   int64  `json:"accountId"`
-	AccountName string `json:"accountName"`
-	Amount      int64  `json:"amount"`
+	ID          int64        `json:"id"`
+	AccountID   int64        `json:"accountId"`
+	AccountName string       `json:"accountName"`
+	AccountKind account.Kind `json:"accountKind"`
+	Amount      int64        `json:"amount"`
 }
 
 type BillingResponse struct {
@@ -50,6 +52,7 @@ func ToBillingRegistrationResponse(b *BillingRegistration) BillingResponse {
 			ID:          e.ID,
 			AccountID:   e.AccountID,
 			AccountName: e.AccountName,
+			AccountKind: e.AccountKind,
 			Amount:      e.Amount,
 		}
 	}

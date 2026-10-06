@@ -85,19 +85,24 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 	// saldo: 10000 no banco − 3000 na fatura = 7000
 	entries := fmt.Sprintf(`{"entries":[{"accountId":%d,"amount":10000},{"accountId":%d,"amount":3000}]}`, bank.ID, card.ID)
 	var registration struct {
-		Total int64
-		Delta *int64
+		Total   int64
+		Delta   *int64
+		Entries []struct{ AccountKind string }
 	}
 	decode(call(http.MethodPost, "/billings", entries, alice, http.StatusCreated), &registration)
 	if registration.Total != 7000 || registration.Delta != nil {
 		t.Fatalf("primeiro registro: total %d, delta %v (sem registro anterior não há delta)", registration.Total, registration.Delta)
+	}
+	if kinds := fmt.Sprint(registration.Entries); kinds != "[{asset} {liability}]" {
+		t.Fatalf("tipo das contas nos lançamentos (separa saldo de fatura): %s", kinds)
 	}
 	decode(call(http.MethodPost, "/billings", entries, alice, http.StatusCreated), &registration)
 	if registration.Delta == nil || *registration.Delta != 0 {
 		t.Fatalf("segundo registro com o mesmo saldo deveria ter delta 0, veio %v", registration.Delta)
 	}
 
-	// despesa de 500 no dia 1 deste mês e empréstimo de 1000 vencendo hoje entram na projeção
+	// a projeção de 1 mês é para o dia 1 do mês que vem e conta o mês que vem inteiro: entram as duas
+	// parcelas de 500 do celular (dia 1 deste mês e do próximo) e o empréstimo de 1000 vencendo hoje
 	now := time.Now()
 	call(http.MethodPost, "/recurring-transactions", fmt.Sprintf(
 		`{"description":"Celular","kind":"expense","isFixed":false,"amount":500,"startMonth":%q,"installments":2,"dayOfMonth":1}`,
@@ -107,14 +112,20 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 		now.Format(time.DateOnly)), alice, http.StatusCreated)
 
 	type projection struct {
-		ProjectedAmount     int64
-		PendingTransactions []struct{ ID int64 }
-		PendingReceivables  []struct{ ID int64 }
+		ProjectedAmount      int64
+		PendingTransactions  []struct{ ID int64 }
+		PendingReceivables   []struct{ ID int64 }
+		BillingRegistrations []struct {
+			Entries []struct{ AccountKind string }
+		}
 	}
 	var p projection
 	decode(call(http.MethodGet, "/billings?months=1", "", alice, http.StatusOK), &p)
-	if p.ProjectedAmount != 7000-500+1000 || len(p.PendingTransactions) != 1 || len(p.PendingReceivables) != 1 {
+	if p.ProjectedAmount != 7000-2*500+1000 || len(p.PendingTransactions) != 2 || len(p.PendingReceivables) != 1 {
 		t.Fatalf("unexpected projection: %+v", p)
+	}
+	if kinds := fmt.Sprint(p.BillingRegistrations[0].Entries); kinds != "[{asset} {liability}]" {
+		t.Fatalf("tipo das contas nos registros da projeção: %s", kinds)
 	}
 	var empty projection
 	decode(call(http.MethodGet, "/billings?months=1", "", bob, http.StatusOK), &empty)
@@ -130,7 +141,7 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 	call(http.MethodPatch, installment, `{"paid":true}`, alice, http.StatusOK)
 	call(http.MethodPatch, received, `{"paid":true}`, alice, http.StatusOK)
 	decode(call(http.MethodGet, "/billings?months=1", "", alice, http.StatusOK), &p)
-	if p.ProjectedAmount != 7000 {
+	if p.ProjectedAmount != 7000-500 {
 		t.Fatalf("paid installments still projected: %+v", p)
 	}
 
@@ -139,5 +150,20 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 	decode(call(http.MethodDelete, fmt.Sprintf("/accounts/%d", bank.ID), "", alice, http.StatusOK), &deleted)
 	if deleted.Message != "conta arquivada" {
 		t.Fatalf("expected archive, got %q", deleted.Message)
+	}
+
+	// começou dois meses antes do cadastro: as parcelas desde o início aparecem, atrasadas, para marcar as já pagas
+	call(http.MethodPost, "/recurring-transactions", fmt.Sprintf(
+		`{"description":"Seguro","kind":"expense","isFixed":false,"amount":100,"startMonth":%q,"installments":12,"dayOfMonth":1}`,
+		time.Date(now.Year(), now.Month()-2, 1, 0, 0, 0, 0, time.UTC).Format("2006-01")), bob, http.StatusCreated)
+	var past struct {
+		PendingTransactions []struct {
+			Number  int
+			Overdue bool
+		}
+	}
+	decode(call(http.MethodGet, "/billings?months=1", "", bob, http.StatusOK), &past)
+	if pt := past.PendingTransactions; len(pt) != 4 || pt[0].Number != 1 || !pt[0].Overdue || !pt[1].Overdue {
+		t.Fatalf("parcelas desde o início, atrasadas: %+v", pt)
 	}
 }

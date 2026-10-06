@@ -19,6 +19,12 @@ services:
       retries: 5
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # só cache das respostas: nada vai para o disco, e a API segue funcionando (direto no banco) sem ele
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
   app:
     image: ghcr.io/kgazineu/finapp-back:${APP_VERSION:-latest}
     pull_policy: always
@@ -39,11 +45,14 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
       # sites (front web) que podem chamar a API pelo navegador, separados por vírgula
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "${FINAPP_PORT:-8080}:8080"
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     healthcheck:
       test:
         - CMD-SHELL

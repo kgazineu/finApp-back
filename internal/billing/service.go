@@ -40,11 +40,18 @@ func (s *Service) FindMany(ctx context.Context, userID uuid.UUID) ([]*BillingReg
 	return s.repo.FindManyBillingRegistrations(ctx, userID)
 }
 
-func (s *Service) MonthProjection(ctx context.Context, userID uuid.UUID, now time.Time, months int) (*MonthProjection, error) {
+// projectionWindow: a projeção é para o dia 1 do N-ésimo mês depois do atual, e tudo que vence até o
+// fim desse mês conta como pago nesse dia 1. Em outubro, "1 mês" é 01/11 com novembro inteiro.
+func projectionWindow(now time.Time, months int) (projectedFor, until time.Time) {
 	y, m, _ := now.Date()
-	endOfMonth := time.Date(y, m+time.Month(months), 0, 0, 0, 0, 0, time.UTC)
+	projectedFor = time.Date(y, m+time.Month(months), 1, 0, 0, 0, 0, time.UTC)
+	return projectedFor, projectedFor.AddDate(0, 1, -1)
+}
 
-	p := &MonthProjection{Date: endOfMonth.AddDate(0, 0, 1)}
+func (s *Service) MonthProjection(ctx context.Context, userID uuid.UUID, now time.Time, months int) (*MonthProjection, error) {
+	projectedFor, until := projectionWindow(now, months)
+
+	p := &MonthProjection{Date: projectedFor}
 
 	last, err := s.repo.findLastBillingRegistration(ctx, userID)
 	if err != nil {
@@ -54,7 +61,7 @@ func (s *Service) MonthProjection(ctx context.Context, userID uuid.UUID, now tim
 		p.Total = last.total
 	}
 
-	p.Transactions, err = s.transactions.FindPendingInstallments(ctx, userID, endOfMonth)
+	p.Transactions, err = s.transactions.FindPendingInstallments(ctx, userID, until)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +73,7 @@ func (s *Service) MonthProjection(ctx context.Context, userID uuid.UUID, now tim
 		}
 	}
 
-	p.Receivables, err = s.receivables.FindPendingUntil(ctx, userID, endOfMonth)
+	p.Receivables, err = s.receivables.FindPendingUntil(ctx, userID, until)
 	if err != nil {
 		return nil, err
 	}

@@ -19,6 +19,8 @@ type Config struct {
 	SMTP       SMTP
 	// CORSOrigins: sites que podem chamar a API pelo navegador (CORS_ALLOWED_ORIGINS, separados por vírgula)
 	CORSOrigins []string
+	// RedisURL: cache das respostas (REDIS_URL); vazio = API sem cache. Validada ao abrir o cliente.
+	RedisURL string
 }
 
 // SMTP configura o envio do código de recuperação de senha. Host vazio = e-mail vai para o log.
@@ -33,7 +35,7 @@ type SMTP struct {
 // Load reads configuration from the process environment. It never reads .env files.
 // Every problem is reported at once, so a misconfigured deploy fails at startup listing all of them.
 func Load() (Config, error) {
-	cfg := Config{HTTPAddr: value("HTTP_ADDR", ":8080"), Production: os.Getenv("GIN_MODE") == "release"}
+	cfg := Config{HTTPAddr: value("HTTP_ADDR", ":8080"), Production: os.Getenv("GIN_MODE") == "release", RedisURL: os.Getenv("REDIS_URL")}
 	var problems []error
 	if _, _, err := net.SplitHostPort(cfg.HTTPAddr); err != nil {
 		problems = append(problems, errors.New("HTTP_ADDR deve conter host:porta"))

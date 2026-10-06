@@ -2,9 +2,33 @@ package billing
 
 import (
 	"testing"
+	"time"
 
 	"github.com/kgazineu/finApp-back/internal/account"
 )
+
+func TestProjectionWindow(t *testing.T) {
+	tests := []struct {
+		name, now string
+		months    int
+		want      string
+	}{
+		{"1 mês: dia 1 do mês que vem, com ele inteiro", "2026-10-06", 1, "2026-11-01 até 2026-11-30"},
+		{"3 meses: salários de novembro, dezembro e janeiro", "2026-10-06", 3, "2027-01-01 até 2027-01-31"},
+		{"virada do ano", "2026-12-31", 1, "2027-01-01 até 2027-01-31"},
+		{"fevereiro", "2027-01-31", 1, "2027-02-01 até 2027-02-28"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now, _ := time.Parse(time.DateOnly, tt.now)
+			projectedFor, until := projectionWindow(now, tt.months)
+			if got := projectedFor.Format(time.DateOnly) + " até " + until.Format(time.DateOnly); got != tt.want {
+				t.Errorf("got %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestCalculate(t *testing.T) {
 	kinds := map[int64]account.Kind{

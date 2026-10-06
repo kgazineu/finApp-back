@@ -28,6 +28,7 @@ Por baixo das duas está a **identidade**: `users` e `sessions`. Todo dado finan
 - [Módulo: Recurring transactions (entradas e despesas planejadas)](#módulo-recurring-transactions-entradas-e-despesas-planejadas)
 - [Módulo: Receivables (valores a receber)](#módulo-receivables-valores-a-receber)
 - [Exportar e importar dados (backup)](#exportar-e-importar-dados-backup)
+- [Cache (Redis)](#cache-redis)
 - [Fluxos](#fluxos)
 - [Uso ideal](#uso-ideal)
 - [Modelo de dados](#modelo-de-dados)
@@ -54,7 +55,7 @@ Por baixo das duas está a **identidade**: `users` e `sessions`. Todo dado finan
    ```bash
    cp .env.example .env
    ```
-2. Suba o banco (PostgreSQL no Docker; o compose lê o `.env`):
+2. Suba o banco e o cache (PostgreSQL e Redis no Docker; o compose lê o `.env`):
    ```bash
    make docker-up
    ```
@@ -62,7 +63,7 @@ Por baixo das duas está a **identidade**: `users` e `sessions`. Todo dado finan
    ```bash
    make dev
    ```
-4. Se a porta 5432 já estiver ocupada por outro Postgres, troque `POSTGRES_PORT` no `.env` (o banco e a API usam o mesmo valor).
+4. Se a porta 5432 já estiver ocupada por outro Postgres, troque `POSTGRES_PORT` no `.env` (o banco e a API usam o mesmo valor). Com a 6379 ocupada por outro Redis, troque `REDIS_PORT` e a porta da `REDIS_URL`.
 5. Documentação interativa (Swagger) com **todas** as rotas em `http://localhost:8080/docs/`; a especificação está em `/openapi.json`.
 
 `make` sem argumentos lista todos os comandos.
@@ -95,6 +96,7 @@ A API valida tudo ao iniciar e, se algo estiver errado, **não sobe** e lista to
 | `SMTP_FROM` | e-mail remetente (sem nome de exibição); sem ele, usa `SMTP_USERNAME` |
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | autenticação; usuário exige senha |
 | `TZ` | fuso para "hoje", vencimentos e meses da projeção; a imagem Docker usa `America/Sao_Paulo` |
+| `REDIS_URL` | cache das respostas, como `redis://[:senha@]host:6379/0`; vazia, a API funciona sem cache. URL inválida impede a API de subir; Redis fora do ar, não (veja [Cache](#cache-redis)) |
 
 ### Testes
 
@@ -102,7 +104,7 @@ A API valida tudo ao iniciar e, se algo estiver errado, **não sobe** e lista to
 make test
 ```
 
-Os testes de integração com PostgreSQL só rodam com `TEST_DATABASE_URL` apontando para um **banco descartável** (cada teste cria e apaga o próprio schema). No CI ela é obrigatória.
+Os testes de integração com PostgreSQL só rodam com `TEST_DATABASE_URL` apontando para um **banco descartável** (cada teste cria e apaga o próprio schema). O teste do cache precisa também de `TEST_REDIS_URL` (qualquer Redis; as chaves levam ids novos a cada execução). No CI as duas são obrigatórias.
 
 ```bash
 TEST_DATABASE_URL='postgres://finapp:change-me@localhost:5432/finapp_test?sslmode=disable' go test -race -count=1 ./...
@@ -135,12 +137,13 @@ internal/recurring/        entradas/despesas planejadas    │ controller → se
 internal/receivable/       valores a receber               ┘
 internal/passwordreset/    recuperação de senha por código
 internal/dataexport/       exportação e importação dos dados do usuário
+internal/cache/            cache das respostas no Redis (middleware dos módulos de saldo)
 ```
 
 São dois estilos convivendo:
 
 - **Rotas OpenAPI** (`/users`, `/sessions`, `/transactions`, `/goals`, `/dashboard`): o contrato está em `docs/openapi.yaml`, o `oapi-codegen` gera a interface e o registro das rotas, e os handlers em `internal/api` chamam serviços de domínio que não conhecem Gin nem GORM.
-- **Módulos de saldo** (`/accounts`, `/billings`, `/recurring-transactions`, `/receivables`): cada módulo é autocontido (`controller.go`, `service.go`, `repository.go`, `routes.go`) e é montado em `cmd/api/main.go` por `registerBalanceModules`, atrás do middleware `api.Server.RequireSession`. A recuperação de senha (`/password-resets`, pública) e o backup (`/export`, `/import`) seguem o mesmo estilo.
+- **Módulos de saldo** (`/accounts`, `/billings`, `/recurring-transactions`, `/receivables`): cada módulo é autocontido (`controller.go`, `service.go`, `repository.go`, `routes.go`) e é montado em `cmd/api/main.go` por `registerBalanceModules`, atrás do middleware `api.Server.RequireSession` (e do cache, quando há `REDIS_URL`). A recuperação de senha (`/password-resets`, pública) e o backup (`/export`, `/import`) seguem o mesmo estilo.
 
 As rotas dos dois estilos estão documentadas no `docs/openapi.yaml`. As registradas à mão usam tags que o gerador de rotas ignora (`exclude-tags` em `internal/api/config.yaml`: Accounts, Billings, Recurring transactions, Receivables, Password resets e Data). O spec completo, com essas tags, é gerado à parte (`internal/api/spec.config.yaml` → `spec.gen.go`) e é o que o `/docs` serve. Ao criar uma rota registrada à mão, documente-a no YAML com uma dessas tags (ou acrescente a tag nova à lista); sem isso, o gerador tentaria registrar a rota de novo.
 
@@ -395,7 +398,7 @@ Resposta:
 2. Cada valor é o **saldo da conta**, em centavos, **sempre ≥ 0**. A fatura do cartão vai positiva: quem diz que ela subtrai é o tipo da conta.
 3. **Total** = soma das contas `asset` − soma das contas `liability`.
 4. **Delta** = total deste registro − total do seu registro anterior. O **primeiro registro não tem delta** (`null`): não há com o que comparar.
-5. O **nome da conta é copiado** para o lançamento (`accountName`): renomear a conta depois não muda o histórico.
+5. O **nome da conta é copiado** para o lançamento (`accountName`): renomear a conta depois não muda o histórico. A resposta traz também `accountKind`, o tipo **atual** da conta, que separa o saldo das contas do valor das faturas (o tipo não é copiado: mudar o tipo de uma conta muda como os registros antigos aparecem, mas não o total gravado).
 6. Registro e lançamentos são gravados numa **transação de banco**.
 7. Registros não têm edição nem exclusão.
 
@@ -409,12 +412,14 @@ Resposta:
 
 ### Projeção
 
-`GET /billings?months=N` (N de 1 a 120, padrão 1) calcula quanto você terá no **primeiro dia depois do fim do N-ésimo mês**, contando o mês atual como o primeiro:
+`GET /billings?months=N` (N de 1 a 120, padrão 1) calcula quanto você terá no **dia 1 do N-ésimo mês depois do atual**, contando **tudo que vence até o fim desse mês como se fosse pago nesse dia 1**. Assim a projeção para 01/01 já inclui o salário (e as contas) de janeiro:
 
-| Hoje | `months` | Considera pendências até | `projectedFor` |
-|---|---|---|---|
-| 03/10/2026 | 1 | 31/10/2026 | 2026-11-01 |
-| 03/10/2026 | 3 | 31/12/2026 | 2027-01-01 |
+| Hoje | `months` | `projectedFor` | Considera pendências até | Salários contados (todo mês) |
+|---|---|---|---|---|
+| 06/10/2026 | 1 | 2026-11-01 | 30/11/2026 | novembro |
+| 06/10/2026 | 3 | 2027-01-01 | 31/01/2027 | novembro, dezembro e janeiro |
+
+(O de outubro também entra se ainda estiver pendente, como qualquer atrasado.)
 
 ```
 projectedAmount =
@@ -443,7 +448,7 @@ Resposta do `POST`:
 
 ```json
 { "id": 2, "delta": -450, "total": 4550,
-  "entries": [ { "id": 4, "accountId": 1, "accountName": "Inter", "amount": 0 } ],
+  "entries": [ { "id": 4, "accountId": 1, "accountName": "Inter", "accountKind": "asset", "amount": 0 } ],
   "createdAt": "2026-10-03T19:00:00Z" }
 ```
 
@@ -517,11 +522,10 @@ Celular em 10x a partir de 2026-10 → termina em 2027-07. IPVA fixo 3 vezes a c
 
 As parcelas **não nascem junto com a regra**: são geradas sob demanda sempre que você consulta as pendentes (`/installments/pending` ou `GET /billings`).
 
-1. Para cada regra ativa sua, calcula as ocorrências desde o **mês em que ela foi cadastrada** até a data limite.
-2. Meses **anteriores ao cadastro não viram parcela**: cadastrar hoje um aluguel que começou em agosto não cria dívidas de agosto e setembro.
-3. A **numeração conta desde o `startMonth`**: uma compra em 10x que começou 2 meses antes do cadastro já nasce na parcela 3.
-4. Cada parcela guarda **uma cópia do valor** no momento em que é gerada.
-5. Parcela que já existe não é recriada nem alterada.
+1. Para cada regra ativa sua, calcula as ocorrências desde o **`startMonth`** até a data limite, mesmo que ela tenha sido cadastrada depois.
+2. **Começou no passado? As parcelas já vencidas nascem atrasadas**: o seguro em 12x que começou em fevereiro, cadastrado em outubro, aparece com as parcelas de fevereiro a setembro em atraso, e você marca as que já pagou. Nada é dado como pago sem você marcar; as não marcadas entram na projeção.
+3. Cada parcela guarda **uma cópia do valor** no momento em que é gerada.
+4. Parcela que já existe não é recriada nem alterada.
 
 ### Marcar como pago
 
@@ -563,7 +567,7 @@ Ocorrência (`/occurrences`) — `date` é `null` sem dia definido; `installment
   "amount": 15000, "date": "2026-11-10", "installment": 1, "installments": 10 }
 ```
 
-> `/occurrences` é **só um cálculo** a partir das regras: não olha parcelas, não sabe o que foi pago e ignora o mês de cadastro. Serve para "o que acontece em tal mês". Para "o que falta pagar", use `/installments/pending`.
+> `/occurrences` é **só um cálculo** a partir das regras: não olha parcelas, não sabe o que foi pago. Serve para "o que acontece em tal mês". Para "o que falta pagar", use `/installments/pending`.
 
 Parcela pendente:
 
@@ -670,12 +674,31 @@ Para levar os dados de um usuário para outro servidor/banco sem cadastrar tudo 
 | Método | Rota | O que faz |
 |---|---|---|
 | `GET` | `/export` | devolve um JSON (`format: "finapp-export"`, `version: 1`) com contas (inclusive arquivadas), registros de saldo com lançamentos, transações planejadas e valores a receber com as parcelas (pagas ou não), lançamentos e metas |
-| `POST` | `/import` | recebe esse JSON e recria tudo na conta da sessão |
+| `POST` | `/import` | recebe esse JSON e recria tudo na conta da sessão; `?replace=true` troca os dados que já existem |
 
-- A importação só aceita uma **conta sem dados** (`409` se já houver algo), assim nada é duplicado. O fluxo é: crie a conta no servidor novo, entre e importe.
-- É tudo ou nada: uma transação de banco. Arquivo de outro formato ou com dados que violam as regras do banco → `400`; acima de 20 MB → `413`.
+- Conta **sem dados** importa direto.
+- Conta **com dados** (qualquer conta, registro, transação, valor a receber, lançamento ou meta) recebe `409`, a menos que venha `?replace=true`: aí a API **apaga todos os seus dados** e grava o arquivo no lugar. Nada é misturado nem duplicado. O web pede confirmação antes de mandar o `replace`.
+- É tudo ou nada: uma transação de banco, que inclui a limpeza do `replace`. Arquivo de outro formato ou com dados que violam as regras do banco → `400`, e os dados antigos continuam como estavam; acima de 20 MB → `413`.
+- O `GET /export` responde `Cache-Control: no-store`: o arquivo nunca fica em cache.
 - Os ids não viajam: cada registro ganha id novo e as ligações (conta do lançamento, pai da parcela) são refeitas. Datas de criação, arquivamento e pagamento são mantidas, então a geração de parcelas e a projeção continuam iguais.
 - No web, fica em **Perfil → Seus dados**. Para migrar o banco inteiro (todos os usuários) de uma vez, `pg_dump`/`pg_restore` continua sendo o caminho.
+
+---
+
+## Cache (Redis)
+
+Com `REDIS_URL` definida, as respostas `GET` dos módulos de saldo (`/accounts`, `/billings`, `/recurring-transactions`, `/receivables` e as rotas de parcelas) ficam no Redis, separadas por usuário, por até 10 minutos.
+
+- **Escrita invalida na hora.** Qualquer `POST`, `PATCH` ou `DELETE` do usuário nesses módulos (inclusive `/import`) incrementa a versão do cache dele, que faz parte da chave: o que estava guardado deixa de ser usado e expira sozinho. Invalida mesmo quando a escrita falha, porque uma edição que quebra no meio pode já ter mudado dados.
+- **O dia faz parte da chave**: "atrasada" e os meses da projeção mudam à meia-noite (no fuso `TZ`).
+- **Cada usuário tem o seu**: a chave leva o id do usuário da sessão.
+- A resposta traz `X-Cache: HIT` (veio do Redis) ou `MISS` (foi ao banco e ficou guardada).
+- **Não é guardado**: resposta de erro e o `GET /export`.
+- Ao iniciar, a API apaga as chaves `finapp:*`, porque o formato das respostas pode ter mudado entre versões. Só essas chaves: dá para usar um Redis compartilhado.
+- **Redis fora do ar não derruba a API**: cada operação faz uma tentativa curta (300 ms, sem repetir) e, se falhar, a requisição vai direto ao banco, com um aviso no log.
+- Mudança feita direto no banco, sem passar pela API, aparece em até 10 minutos ou na próxima escrita do usuário.
+
+Em produção, o `compose.prod.yaml` sobe um Redis só em memória (sem persistência), na rede interna, e a API usa `redis://redis:6379/0`. Localmente, `make docker-up` sobe um igual na porta 6379.
 
 ---
 
@@ -821,4 +844,3 @@ Migrations: `000001`–`000005` (users, transactions, sessions, goals), `000006`
 **Recurring transactions**
 
 - Editar e apagar fazem duas operações separadas (apagar parcelas não pagas, depois atualizar), sem transação de banco. Se a segunda falhar, as parcelas são regeradas na próxima consulta de pendentes.
-- O mês de cadastro usado na geração de parcelas segue o fuso do servidor.
