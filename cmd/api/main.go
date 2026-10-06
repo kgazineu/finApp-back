@@ -31,10 +31,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func newRouter(server api.ServerInterface) *gin.Engine {
+func newRouter(server api.ServerInterface, corsOrigins ...string) *gin.Engine {
 	router := gin.Default()
 	// There is no trusted proxy configured for this deployment.
 	_ = router.SetTrustedProxies(nil)
+	// antes das rotas: o Gin só aplica middleware às rotas registradas depois dele
+	router.Use(api.CORS(corsOrigins))
 
 	api.RegisterHandlersWithOptions(router, server, api.GinServerOptions{
 		ErrorHandler: func(c *gin.Context, _ error, status int) {
@@ -101,7 +103,7 @@ func run(ctx context.Context) error {
 	goals := goal.NewService(postgres.NewGoalRepository(db))
 	dashboard := overview.NewService(postgres.NewOverviewRepository(db))
 	apiServer := api.NewServer(users, api.WithFinancialServices(sessions, transactions), api.WithGoalService(goals), api.WithOverviewService(dashboard))
-	router := newRouter(apiServer)
+	router := newRouter(apiServer, cfg.CORSOrigins...)
 	// same pool as GORM; "pgx" is the database/sql driver registered by gorm.io/driver/postgres
 	sqlDB := sqlx.NewDb(pool, "pgx")
 	registerBalanceModules(router, apiServer, sqlDB)

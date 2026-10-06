@@ -2,11 +2,13 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/mail"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -15,6 +17,8 @@ type Config struct {
 	// Production vem de GIN_MODE=release (compose.prod.yaml).
 	Production bool
 	SMTP       SMTP
+	// CORSOrigins: sites que podem chamar a API pelo navegador (CORS_ALLOWED_ORIGINS, separados por vírgula)
+	CORSOrigins []string
 }
 
 // SMTP configura o envio do código de recuperação de senha. Host vazio = e-mail vai para o log.
@@ -40,6 +44,9 @@ func Load() (Config, error) {
 	cfg.DatabaseURL = dsn
 
 	cfg.SMTP, err = loadSMTP(cfg.Production)
+	problems = append(problems, err)
+
+	cfg.CORSOrigins, err = loadCORSOrigins()
 	problems = append(problems, err)
 
 	if err := errors.Join(problems...); err != nil {
@@ -115,6 +122,23 @@ func loadSMTP(production bool) (SMTP, error) {
 		problems = append(problems, errors.New("SMTP_PASSWORD é obrigatório quando SMTP_USERNAME está definido"))
 	}
 	return s, errors.Join(problems...)
+}
+
+// loadCORSOrigins aceita só origens (esquema + host[:porta]), como o navegador manda no header Origin.
+func loadCORSOrigins() ([]string, error) {
+	var origins []string
+	for _, raw := range strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ",") {
+		origin := strings.TrimSuffix(strings.TrimSpace(raw), "/")
+		if origin == "" {
+			continue
+		}
+		u, err := url.Parse(origin)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" || u.RawQuery != "" {
+			return nil, fmt.Errorf("CORS_ALLOWED_ORIGINS: %q deve ser só o endereço do site, como https://exemplo.com", raw)
+		}
+		origins = append(origins, origin)
+	}
+	return origins, nil
 }
 
 func validPort(port string) bool {

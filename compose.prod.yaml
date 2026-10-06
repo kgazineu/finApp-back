@@ -37,6 +37,8 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      # sites (front web) que podem chamar a API pelo navegador, separados por vírgula
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     ports:
       - "${FINAPP_PORT:-8080}:8080"
     depends_on:

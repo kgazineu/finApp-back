@@ -96,6 +96,7 @@ A API valida tudo ao iniciar e, se algo estiver errado, **não sobe** e lista to
 | `POSTGRES_PASSWORD` | obrigatória sem `DATABASE_URL` |
 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_SSLMODE` | padrões `localhost`, `5432`, `finapp`, `finapp`, `disable`; a porta precisa ser válida |
 | `HTTP_ADDR` | `host:porta`, padrão `:8080` |
+| `CORS_ALLOWED_ORIGINS` | sites que podem chamar a API pelo navegador, separados por vírgula (ex.: `https://seu-front.trycloudflare.com`); cada item precisa ser só esquema + host |
 | `GIN_MODE=release` | marca produção: aí `SMTP_HOST` passa a ser obrigatório (o código de recuperação de senha não pode ir para o log) |
 | `SMTP_HOST`, `SMTP_PORT` | servidor de e-mail; porta padrão 587 |
 | `SMTP_FROM` | e-mail remetente (sem nome de exibição); sem ele, usa `SMTP_USERNAME` |

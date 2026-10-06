@@ -11,7 +11,7 @@ import (
 func cleanEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{"DATABASE_URL", "HTTP_ADDR", "POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "POSTGRES_SSLMODE",
-		"GIN_MODE", "SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM"} {
+		"GIN_MODE", "CORS_ALLOWED_ORIGINS", "SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM"} {
 		t.Setenv(key, "")
 	}
 }
@@ -119,5 +119,23 @@ func TestLoadReportsAllProblemsAtOnce(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("erro deveria citar %s: %v", want, err)
 		}
+	}
+}
+
+func TestLoadCORSOrigins(t *testing.T) {
+	cleanEnv(t)
+	t.Setenv("POSTGRES_PASSWORD", "test-password")
+	t.Setenv("CORS_ALLOWED_ORIGINS", " https://web.example.com/ , http://localhost:5173")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.CORSOrigins) != 2 || cfg.CORSOrigins[0] != "https://web.example.com" || cfg.CORSOrigins[1] != "http://localhost:5173" {
+		t.Fatalf("origens inesperadas: %q", cfg.CORSOrigins)
+	}
+
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://web.example.com/app")
+	if _, err := config.Load(); err == nil {
+		t.Error("origem com caminho deveria ser recusada")
 	}
 }
