@@ -224,4 +224,37 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 	if got := string(call(http.MethodGet, "/savings-goal", "", bob, http.StatusOK)); got != `{"percent":null,"amount":null}` {
 		t.Fatalf("meta removida: %s", got)
 	}
+
+	// metas: pelo saldo total ou por uma conta de saldo do próprio usuário (fatura não vale)
+	var savings, bobCard struct{ ID int64 }
+	decode(call(http.MethodPost, "/accounts", `{"name":"Reserva","kind":"asset"}`, bob, http.StatusCreated), &savings)
+	decode(call(http.MethodPost, "/accounts", `{"name":"Cartão","kind":"liability"}`, bob, http.StatusCreated), &bobCard)
+	call(http.MethodPost, "/targets", fmt.Sprintf(`{"name":"Carro","amount":5000000,"deadline":"2028-01-31","accountId":%d}`, bobCard.ID), bob, http.StatusBadRequest)
+	call(http.MethodPost, "/targets", fmt.Sprintf(`{"name":"Carro","amount":5000000,"deadline":"2028-01-31","accountId":%d}`, card.ID), bob, http.StatusBadRequest)
+	call(http.MethodPost, "/targets", `{"name":"Carro","amount":5000000,"deadline":"31/01/2028"}`, bob, http.StatusBadRequest)
+	call(http.MethodPost, "/targets", `{"name":"  ","amount":5000000,"deadline":"2028-01-31"}`, bob, http.StatusBadRequest)
+	call(http.MethodPost, "/targets", `{"name":"Carro","amount":0,"deadline":"2028-01-31"}`, bob, http.StatusBadRequest)
+	var car struct{ ID int64 }
+	decode(call(http.MethodPost, "/targets", `{"name":"Carro","amount":5000000,"deadline":"2028-01-31"}`, bob, http.StatusCreated), &car)
+	call(http.MethodPost, "/targets", fmt.Sprintf(`{"name":"Viagem","amount":800000,"deadline":"2027-07-31","accountId":%d}`, savings.ID), bob, http.StatusCreated)
+	var targets []struct {
+		Name      string
+		AccountID *int64
+	}
+	decode(call(http.MethodGet, "/targets", "", bob, http.StatusOK), &targets)
+	if len(targets) != 2 || targets[0].Name != "Viagem" || targets[0].AccountID == nil || *targets[0].AccountID != savings.ID || targets[1].AccountID != nil {
+		t.Fatalf("metas do bob (por prazo): %+v", targets)
+	}
+	if body := call(http.MethodGet, "/targets", "", alice, http.StatusOK); string(body) != "[]" {
+		t.Fatalf("alice vê as metas do bob: %s", body)
+	}
+	call(http.MethodPatch, fmt.Sprintf("/targets/%d", car.ID), `{"name":"Carro","amount":6000000,"deadline":"2028-06-30"}`, alice, http.StatusNotFound)
+	call(http.MethodPatch, fmt.Sprintf("/targets/%d", car.ID), `{"name":"Carro","amount":6000000,"deadline":"2028-06-30"}`, bob, http.StatusOK)
+	call(http.MethodDelete, fmt.Sprintf("/targets/%d", car.ID), "", alice, http.StatusNotFound)
+	call(http.MethodDelete, fmt.Sprintf("/targets/%d", car.ID), "", bob, http.StatusOK)
+	// conta com meta não some: vira arquivada, como conta com histórico
+	decode(call(http.MethodDelete, fmt.Sprintf("/accounts/%d", savings.ID), "", bob, http.StatusOK), &deleted)
+	if deleted.Message != "conta arquivada" {
+		t.Fatalf("conta com meta: %q", deleted.Message)
+	}
 }

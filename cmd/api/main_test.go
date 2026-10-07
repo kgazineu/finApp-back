@@ -108,6 +108,8 @@ func TestOpenAPISpec(t *testing.T) {
 		"/password-resets/confirm":       {"post"},
 		"/export":                        {"get"},
 		"/savings-goal":                  {"get", "put"},
+		"/targets":                       {"get", "post"},
+		"/targets/{id}":                  {"patch", "delete"},
 		"/import":                        {"post"},
 	} {
 		var operations map[string]json.RawMessage

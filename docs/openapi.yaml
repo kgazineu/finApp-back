@@ -40,7 +40,11 @@ tags:
   - name: Data
     description: Exportação e importação de todos os dados do usuário (backup e migração)
   - name: Savings goal
-    description: Meta de guardar por mês (só exibida na tela de projeção; não entra em cálculo nenhum)
+    description: Reserva mensal, quanto guardar por mês (só exibida na tela de projeção; não entra em cálculo nenhum)
+  - name: Targets
+    description: >-
+      Metas: chegar a um valor até uma data, pelo saldo total ou de uma conta de saldo. O progresso vem do
+      último registro de saldos (calculado na tela). Diferente de Goals, que são envelopes virtuais.
 
 paths:
   /health:
@@ -1258,14 +1262,14 @@ paths:
   /savings-goal:
     get:
       operationId: getSavingsGoal
-      summary: Meta de guardar por mês
-      description: Os dois campos nulos = sem meta.
+      summary: Reserva mensal (quanto guardar por mês)
+      description: Os dois campos nulos = sem reserva.
       tags: [Savings goal]
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Meta atual
+          description: Reserva atual
           content:
             application/json:
               schema:
@@ -1276,10 +1280,10 @@ paths:
           $ref: "#/components/responses/InternalError"
     put:
       operationId: saveSavingsGoal
-      summary: Define ou remove a meta de guardar por mês
+      summary: Define ou remove a reserva mensal
       description: >-
-        Porcentagem (1 a 100) do que sobra no mês ou valor fixo por mês, um dos dois. Os dois nulos removem
-        a meta. A API só guarda o número: quanto guardar e quanto sobra para gastar são calculados na tela.
+        Porcentagem (1 a 100) do crescimento por mês ou valor fixo por mês, um dos dois. Os dois nulos removem
+        a reserva. A API só guarda o número: quanto guardar e quanto sobra para gastar são calculados na tela.
       tags: [Savings goal]
       security:
         - bearerAuth: []
@@ -1291,7 +1295,7 @@ paths:
               $ref: "#/components/schemas/SavingsGoal"
       responses:
         "200":
-          description: Meta salva
+          description: Reserva salva
           content:
             application/json:
               schema:
@@ -1300,6 +1304,105 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /targets:
+    get:
+      operationId: listTargets
+      summary: Suas metas, pelo prazo
+      tags: [Targets]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Metas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TargetResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: createTarget
+      summary: Cria uma meta
+      description: >-
+        Valor e prazo obrigatórios. Sem accountId, a meta olha o saldo total do último registro; com accountId,
+        o saldo daquela conta, que precisa ser sua, ativa e de saldo (fatura não vale).
+      tags: [Targets]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TargetRequest"
+      responses:
+        "201":
+          description: Meta criada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TargetResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /targets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/RecordID"
+    patch:
+      operationId: updateTarget
+      summary: Edita uma meta (substitui todos os campos)
+      tags: [Targets]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TargetRequest"
+      responses:
+        "200":
+          description: Meta atualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TargetResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteTarget
+      summary: Apaga uma meta
+      tags: [Targets]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Meta apagada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1767,6 +1870,50 @@ components:
         message:
           type: string
           example: Dados de entrada inválidos
+
+    TargetRequest:
+      type: object
+      required: [name, amount, deadline]
+      properties:
+        name:
+          type: string
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Quanto quer ter, em centavos
+        deadline:
+          type: string
+          format: date
+          description: Prazo (AAAA-MM-DD)
+        accountId:
+          type: integer
+          format: int64
+          nullable: true
+          description: Conta de saldo que a meta acompanha; null ou ausente = saldo total
+
+    TargetResponse:
+      type: object
+      required: [id, name, amount, deadline, accountId, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        amount:
+          type: integer
+          format: int64
+        deadline:
+          type: string
+          format: date
+        accountId:
+          type: integer
+          format: int64
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
 
     SavingsGoal:
       type: object
@@ -2332,11 +2479,37 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ExportGoal"
+        targets:
+          description: Metas; ausente em arquivos antigos
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportTarget"
         savingsGoal:
-          description: Meta de guardar por mês; null sem meta (e em arquivos antigos)
+          description: Reserva mensal; null sem reserva (e em arquivos antigos)
           nullable: true
           allOf:
             - $ref: "#/components/schemas/SavingsGoal"
+
+    ExportTarget:
+      type: object
+      required: [name, amount, deadline, accountId, createdAt]
+      properties:
+        name:
+          type: string
+        amount:
+          type: integer
+          format: int64
+        deadline:
+          type: string
+          format: date
+        accountId:
+          type: integer
+          format: int64
+          nullable: true
+          description: id de uma conta do próprio arquivo; null = saldo total
+        createdAt:
+          type: string
+          format: date-time
 
     ExportAccount:
       type: object

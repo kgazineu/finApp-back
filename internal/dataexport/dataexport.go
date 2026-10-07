@@ -39,7 +39,8 @@ type Document struct {
 	Receivables           []Receivable           `json:"receivables"`
 	Transactions          []Transaction          `json:"transactions"`
 	Goals                 []Goal                 `json:"goals"`
-	SavingsGoal           *SavingsGoal           `json:"savingsGoal"` // null sem meta (e em arquivos antigos)
+	Targets               []Target               `json:"targets"`     // ausente em arquivos antigos
+	SavingsGoal           *SavingsGoal           `json:"savingsGoal"` // reserva mensal; null sem reserva (e em arquivos antigos)
 }
 
 type Account struct {
@@ -116,7 +117,16 @@ type Transaction struct {
 	CreatedAt      time.Time `json:"createdAt" db:"created_at"`
 }
 
-// SavingsGoal é a meta de guardar por mês (savings_goals).
+// Target é uma meta de saldo (targets). AccountID usa o id de Account do arquivo; null = saldo total.
+type Target struct {
+	Name      string    `json:"name" db:"name"`
+	Amount    int64     `json:"amount" db:"amount"`
+	Deadline  string    `json:"deadline" db:"deadline"`
+	AccountID *int64    `json:"accountId" db:"account_id"`
+	CreatedAt time.Time `json:"createdAt" db:"created_at"`
+}
+
+// SavingsGoal é a reserva mensal, quanto guardar por mês (savings_goals).
 type SavingsGoal struct {
 	Percent *int   `json:"percent" db:"percent"`
 	Amount  *int64 `json:"amount" db:"amount"`

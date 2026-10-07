@@ -88,6 +88,9 @@ func TestExportImportRoundTrip(t *testing.T) {
 	call(http.MethodPatch, fmt.Sprintf("/receivables/installments/%d", projection.PendingReceivables[0].ID), `{"paid":true}`, alice, http.StatusOK)
 	call(http.MethodPost, "/transactions", `{"kind":"expense","amountMinor":1299,"necessityLevel":3,"description":"Mercado","category":"Alimentação","paymentMethod":"pix","installments":1,"occurredAt":"2026-09-30T12:00:00Z"}`, alice, http.StatusCreated)
 	call(http.MethodPut, "/savings-goal", `{"percent":30}`, alice, http.StatusOK) // vai junto no arquivo
+	// metas vão junto, com a conta refeita na importação
+	call(http.MethodPost, "/targets", fmt.Sprintf(`{"name":"Viagem","amount":500000,"deadline":"2027-06-30","accountId":%d}`, bank.ID), alice, http.StatusCreated)
+	call(http.MethodPost, "/targets", `{"name":"Reserva","amount":1000000,"deadline":"2027-12-31"}`, alice, http.StatusCreated)
 	var reserve struct{ ID string }
 	decode(call(http.MethodPost, "/goals", `{"name":"Reserva","targetMinor":100000}`, alice, http.StatusCreated), &reserve)
 	call(http.MethodPost, "/goals/"+reserve.ID+"/allocations", `{"direction":"deposit","amountMinor":5000}`, alice, http.StatusOK)
@@ -137,6 +140,12 @@ func normalize(t *testing.T, data []byte) string {
 		for j := range doc.BillingRegistrations[i].Entries {
 			e := &doc.BillingRegistrations[i].Entries[j]
 			e.AccountID = position[e.AccountID]
+		}
+	}
+	for i := range doc.Targets {
+		if id := doc.Targets[i].AccountID; id != nil {
+			p := position[*id]
+			doc.Targets[i].AccountID = &p
 		}
 	}
 	out, err := json.Marshal(doc)

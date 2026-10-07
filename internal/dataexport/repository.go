@@ -57,6 +57,7 @@ func (r *Repository) Export(ctx context.Context, userID uuid.UUID) (*Document, e
 		{&doc.Transactions, `select kind, amount_minor, necessity_level, description, category, payment_method, installments, occurred_at, created_at
 			from transactions where user_id = $1 order by occurred_at, id`},
 		{&doc.Goals, `select name, target_minor, saved_minor, created_at, updated_at from goals where user_id = $1 order by created_at, id`},
+		{&doc.Targets, `select name, amount, deadline::text as deadline, account_id, created_at from targets where user_id = $1 order by id`},
 	}
 	for _, q := range queries {
 		if err := tx.SelectContext(ctx, q.dest, q.query, userID); err != nil {
@@ -78,6 +79,7 @@ func (r *Repository) Export(ctx context.Context, userID uuid.UUID) (*Document, e
 	nonNil(&doc.Receivables)
 	nonNil(&doc.Transactions)
 	nonNil(&doc.Goals)
+	nonNil(&doc.Targets)
 
 	byRegistration := group(entries, func(e BillingEntry) int64 { return e.RegistrationID })
 	for i := range doc.BillingRegistrations {
@@ -117,7 +119,8 @@ func (r *Repository) Import(ctx context.Context, userID uuid.UUID, doc *Document
 		exists(select 1 from recurring_transactions where user_id = $1) or
 		exists(select 1 from receivables where user_id = $1) or
 		exists(select 1 from transactions where user_id = $1) or
-		exists(select 1 from goals where user_id = $1)`, userID)
+		exists(select 1 from goals where user_id = $1) or
+		exists(select 1 from targets where user_id = $1)`, userID)
 	if err != nil {
 		return "", err
 	}
@@ -127,6 +130,7 @@ func (r *Repository) Import(ctx context.Context, userID uuid.UUID, doc *Document
 	if used {
 		for _, query := range []string{
 			`delete from billing_registrations where user_id = $1`, // os lançamentos vão junto (cascade)
+			`delete from targets where user_id = $1`,
 			`delete from accounts where user_id = $1`,
 			`delete from recurring_transaction_installments i using recurring_transactions t where t.id = i.transaction_id and t.user_id = $1`,
 			`delete from recurring_transactions where user_id = $1`,
@@ -223,6 +227,21 @@ func (r *Repository) Import(ctx context.Context, userID uuid.UUID, doc *Document
 		}
 	}
 
+	for _, t := range doc.Targets {
+		var accountID *int64
+		if t.AccountID != nil {
+			id, ok := accountIDs[*t.AccountID]
+			if !ok {
+				return "", fmt.Errorf("%w: a meta %q aponta para a conta %d, que não está no arquivo", ErrInvalidFile, t.Name, *t.AccountID)
+			}
+			accountID = &id
+		}
+		if err := exec(`insert into targets (user_id, name, amount, deadline, account_id, created_at) values ($1, $2, $3, $4, $5, $6)`,
+			userID, t.Name, t.Amount, t.Deadline, accountID, t.CreatedAt); err != nil {
+			return "", err
+		}
+	}
+
 	for _, g := range doc.Goals {
 		if err := exec(`insert into goals (id, user_id, name, target_minor, saved_minor, created_at, updated_at)
 			values ($1, $2, $3, $4, $5, $6, $7)`, uuid.New(), userID, g.Name, g.TargetMinor, g.SavedMinor, g.CreatedAt, g.UpdatedAt); err != nil {
@@ -243,8 +262,8 @@ func (r *Repository) Import(ctx context.Context, userID uuid.UUID, doc *Document
 		return "", err
 	}
 
-	summary := fmt.Sprintf("Importados: %d contas, %d registros de saldo, %d transações planejadas, %d valores a receber, %d lançamentos e %d metas.",
-		len(doc.Accounts), len(doc.BillingRegistrations), len(doc.RecurringTransactions), len(doc.Receivables), len(doc.Transactions), len(doc.Goals))
+	summary := fmt.Sprintf("Importados: %d contas, %d registros de saldo, %d transações planejadas, %d valores a receber, %d lançamentos, %d metas e %d envelopes.",
+		len(doc.Accounts), len(doc.BillingRegistrations), len(doc.RecurringTransactions), len(doc.Receivables), len(doc.Transactions), len(doc.Targets), len(doc.Goals))
 	if used {
 		summary = "Seus dados anteriores foram substituídos. " + summary
 	}
