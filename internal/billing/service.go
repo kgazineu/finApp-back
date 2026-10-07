@@ -87,9 +87,10 @@ func (s *Service) MonthProjection(ctx context.Context, userID uuid.UUID, now tim
 // Monthly é o retrato de um mês típico: o mês que vem, pelas regras cadastradas, pagas ou não (marcar
 // algo adiantado não muda os números).
 type Monthly struct {
-	Month       time.Time
-	Receivables int64 // parcelas de valores a receber que vencem no mês
-	Growth      int64 // entradas + Receivables − despesas (fixas e variáveis): o que sobra no mês, como na projeção
+	Month time.Time
+	// Growth = entradas fixas − despesas fixas: só o que se repete todo mês. Variáveis (compras,
+	// parcelamentos, um freela) e valores a receber mudam de mês para mês e ficam só na projeção.
+	Growth int64
 }
 
 // ponytail: só o mês que vem; média de vários meses se despesas anuais (intervalo > 1) distorcerem
@@ -102,16 +103,16 @@ func (s *Service) MonthlyFigures(ctx context.Context, userID uuid.UUID, now time
 		return f, err
 	}
 	for _, o := range occurrences {
+		if !o.IsFixed {
+			continue // variáveis mudam de mês para mês
+		}
 		if o.Kind == recurring.KindIncome {
 			f.Growth += o.Amount
 		} else {
 			f.Growth -= o.Amount
 		}
 	}
-
-	f.Receivables, err = s.receivables.SumDueBetween(ctx, userID, f.Month, f.Month.AddDate(0, 1, -1))
-	f.Growth += f.Receivables
-	return f, err
+	return f, nil
 }
 
 func (s *Service) CreateBillingRegistration(ctx context.Context, userID uuid.UUID, input []CreateBillingEntryRequest) (*BillingRegistration, error) {

@@ -1777,7 +1777,7 @@ components:
           minimum: 1
           maximum: 100
           nullable: true
-          description: Porcentagem do que sobra no mês (entradas + recebimentos − despesas)
+          description: Porcentagem do crescimento por mês (entradas fixas − despesas fixas)
         amount:
           type: integer
           format: int64
@@ -1906,7 +1906,7 @@ components:
 
     ProjectionResponse:
       type: object
-      required: [billingRegistrations, projectedFor, projectedAmount, monthlyGrowth, monthlyReceivables, monthlyGrowthMonth, pendingTransactions, pendingReceivables]
+      required: [billingRegistrations, projectedFor, projectedAmount, monthlyGrowth, monthlyGrowthMonth, pendingTransactions, pendingReceivables]
       properties:
         billingRegistrations:
           type: array
@@ -1924,15 +1924,12 @@ components:
           type: integer
           format: int64
           description: >-
-            Quanto sobra por mês: no mês que vem, entradas + valores a receber − despesas (fixas e variáveis,
-            como na projeção), pelas regras cadastradas (pagas ou não). Não muda com months.
-        monthlyReceivables:
-          type: integer
-          format: int64
-          description: Parcelas de valores a receber que vencem no mês que vem (pagas ou não); entra no crescimento
+            Crescimento por mês: no mês que vem, entradas fixas − despesas fixas, pelas regras cadastradas
+            (pagas ou não). Só o que se repete todo mês: transações variáveis e valores a receber ficam só na
+            projeção. Não muda com months.
         monthlyGrowthMonth:
           type: string
-          description: Mês usado no crescimento e no recebimento por mês (AAAA-MM), o mês que vem
+          description: Mês usado no crescimento por mês (AAAA-MM), o mês que vem
           example: "2026-11"
         pendingTransactions:
           type: array

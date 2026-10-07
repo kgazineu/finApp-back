@@ -433,7 +433,7 @@ projectedAmount =
 
 - **Parcelas atrasadas entram**: se não foram marcadas como pagas, a API assume que o dinheiro ainda não saiu (ou entrou).
 - Antes de calcular, a API **gera as parcelas** de recurring transactions que ainda não existem até a data limite.
-- **Crescimento por mês** (`monthlyGrowth`, do mês em `monthlyGrowthMonth`): quanto sobra por mês, olhando o **mês que vem**: entradas + valores a receber (`monthlyReceivables`, o recebimento do mês) − **despesas fixas e variáveis**, como a projeção conta. Vem das regras cadastradas, pagas ou não (marcar algo adiantado não muda o número). Não muda com `months`. A [meta de guardar](#meta-de-guardar-savings-goal) é aplicada sobre ele, na tela.
+- **Crescimento por mês** (`monthlyGrowth`, do mês em `monthlyGrowthMonth`): olhando o **mês que vem**, **entradas fixas − despesas fixas**. Só o que se repete todo mês: transações variáveis (compras, parcelamentos, um freela) e valores a receber mudam de um mês para outro, então ficam só na projeção. Vem das regras cadastradas, pagas ou não (marcar algo adiantado não muda o número). Não muda com `months`. A [meta de guardar](#meta-de-guardar-savings-goal) é aplicada sobre ele, na tela.
 - A projeção parte do **último registro de saldos**. Ao registrar um saldo novo, marque como pagas as parcelas que já saíram da conta; senão elas são descontadas duas vezes.
 
 ### Endpoints
@@ -463,7 +463,6 @@ Resposta do `GET`:
   "projectedFor": "2026-11-01",
   "projectedAmount": 123450,
   "monthlyGrowth": 566600,
-  "monthlyReceivables": 5000,
   "monthlyGrowthMonth": "2026-11",
   "pendingTransactions": [ /* parcelas de recurring transactions consideradas */ ],
   "pendingReceivables": [ /* parcelas de receivables consideradas */ ]
@@ -700,7 +699,7 @@ Quanto o usuário quer guardar por mês, para a tela de projeção mostrar quant
 | `GET` | `/savings-goal` | `{"percent": 50, "amount": null}`; os dois nulos = sem meta |
 | `PUT` | `/savings-goal` | define a meta; os dois nulos (ou `{}`) removem |
 
-- Um dos dois: `percent` (1 a 100) é a porcentagem do que **sobra no mês** (o crescimento por mês), ou `amount` é um valor fixo por mês, em centavos. Os dois juntos → `400`.
+- Um dos dois: `percent` (1 a 100) é a porcentagem do **crescimento por mês** (entradas fixas − despesas fixas), ou `amount` é um valor fixo por mês, em centavos. Os dois juntos → `400`.
 - Na tela: meta do mês = `percent` × crescimento por mês (ou `amount`), e para gastar = crescimento por mês − meta.
 - Fica na tabela `savings_goals` (uma linha por usuário) e vai junto na exportação; numa importação ela é configuração, não conta como dado (a do arquivo substitui a atual).
 

@@ -138,17 +138,6 @@ func (r *Repository) FindPendingInstallments(ctx context.Context, userID uuid.UU
 	return toPendingInstallments(rows), nil
 }
 
-// SumDueBetween soma as parcelas que vencem no intervalo (pagas ou não) dos valores a receber ativos.
-func (r *Repository) SumDueBetween(ctx context.Context, userID uuid.UUID, from, to time.Time) (int64, error) {
-	var total int64
-	err := r.db.GetContext(ctx, &total, `
-		select coalesce(sum(i.amount), 0) from receivable_installments i
-		join receivables r on r.id = i.receivable_id
-		where r.user_id = $1 and r.archived_at is null and i.due_date between $2 and $3
-	`, userID, from.Format(time.DateOnly), to.Format(time.DateOnly))
-	return total, err
-}
-
 func (r *Repository) FindPendingUntil(ctx context.Context, userID uuid.UUID, until time.Time) ([]*PendingInstallment, error) {
 	var rows []pendingInstallmentRow
 

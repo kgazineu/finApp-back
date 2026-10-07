@@ -167,20 +167,21 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 		t.Fatalf("parcelas desde o início, atrasadas: %+v", pt)
 	}
 
-	// crescimento por mês: o mês que vem pelas regras, pago ou não. Entradas + a receber − despesas
-	// (fixas e variáveis: o seguro de 100 entra, como na projeção)
+	// crescimento por mês: o mês que vem pelas regras, pago ou não, só com o que se repete todo mês:
+	// entradas fixas − despesas fixas. O seguro (variável), o freela e o valor a receber ficam de fora
 	nextMonth := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC)
 	thisMonth := now.Format("2006-01")
 	call(http.MethodPost, "/recurring-transactions", fmt.Sprintf(
 		`{"description":"Salário","kind":"income","isFixed":true,"amount":5000,"startMonth":%q,"dayOfMonth":5}`, thisMonth), bob, http.StatusCreated)
 	call(http.MethodPost, "/recurring-transactions", fmt.Sprintf(
 		`{"description":"Streaming","kind":"expense","isFixed":true,"amount":110,"startMonth":%q}`, thisMonth), bob, http.StatusCreated)
+	call(http.MethodPost, "/recurring-transactions", fmt.Sprintf(
+		`{"description":"Freela","kind":"income","isFixed":false,"amount":1000,"startMonth":%q}`, nextMonth.Format("2006-01")), bob, http.StatusCreated)
 	call(http.MethodPost, "/receivables", fmt.Sprintf(
 		`{"kind":"loan","debtor":"Pai","description":"Assinatura","amount":50,"amountMode":"installment","installments":2,"firstDueDate":%q}`,
 		nextMonth.AddDate(0, 0, 9).Format(time.DateOnly)), bob, http.StatusCreated)
 	var growth struct {
 		MonthlyGrowth       int64
-		MonthlyReceivables  int64
 		MonthlyGrowthMonth  string
 		PendingTransactions []struct {
 			ID          int64
@@ -189,8 +190,8 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 		}
 	}
 	decode(call(http.MethodGet, "/billings?months=1", "", bob, http.StatusOK), &growth)
-	if growth.MonthlyGrowth != 5000-110-100+50 || growth.MonthlyReceivables != 50 || growth.MonthlyGrowthMonth != nextMonth.Format("2006-01") {
-		t.Fatalf("crescimento por mês: %d (recebimento %d) em %s", growth.MonthlyGrowth, growth.MonthlyReceivables, growth.MonthlyGrowthMonth)
+	if growth.MonthlyGrowth != 5000-110 || growth.MonthlyGrowthMonth != nextMonth.Format("2006-01") {
+		t.Fatalf("crescimento por mês: %d em %s", growth.MonthlyGrowth, growth.MonthlyGrowthMonth)
 	}
 	// receber adiantado o salário do mês que vem não muda o crescimento
 	marked := false
@@ -204,7 +205,7 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 		t.Fatalf("salário do mês que vem não está nas pendentes: %+v", growth.PendingTransactions)
 	}
 	decode(call(http.MethodGet, "/billings?months=1", "", bob, http.StatusOK), &growth)
-	if growth.MonthlyGrowth != 5000-110-100+50 {
+	if growth.MonthlyGrowth != 5000-110 {
 		t.Fatalf("marcar adiantado mudou o crescimento: %d", growth.MonthlyGrowth)
 	}
 
