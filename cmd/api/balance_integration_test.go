@@ -167,8 +167,8 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 		t.Fatalf("parcelas desde o início, atrasadas: %+v", pt)
 	}
 
-	// crescimento por mês: o mês que vem pelas regras, pago ou não. Entradas + a receber − despesas fixas;
-	// o seguro (variável) fica de fora
+	// crescimento por mês: o mês que vem pelas regras, pago ou não. Entradas + a receber − despesas
+	// (fixas e variáveis: o seguro de 100 entra, como na projeção)
 	nextMonth := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC)
 	thisMonth := now.Format("2006-01")
 	call(http.MethodPost, "/recurring-transactions", fmt.Sprintf(
@@ -180,6 +180,7 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 		nextMonth.AddDate(0, 0, 9).Format(time.DateOnly)), bob, http.StatusCreated)
 	var growth struct {
 		MonthlyGrowth       int64
+		MonthlyReceivables  int64
 		MonthlyGrowthMonth  string
 		PendingTransactions []struct {
 			ID          int64
@@ -188,8 +189,8 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 		}
 	}
 	decode(call(http.MethodGet, "/billings?months=1", "", bob, http.StatusOK), &growth)
-	if growth.MonthlyGrowth != 5000-110+50 || growth.MonthlyGrowthMonth != nextMonth.Format("2006-01") {
-		t.Fatalf("crescimento por mês: %d em %s", growth.MonthlyGrowth, growth.MonthlyGrowthMonth)
+	if growth.MonthlyGrowth != 5000-110-100+50 || growth.MonthlyReceivables != 50 || growth.MonthlyGrowthMonth != nextMonth.Format("2006-01") {
+		t.Fatalf("crescimento por mês: %d (recebimento %d) em %s", growth.MonthlyGrowth, growth.MonthlyReceivables, growth.MonthlyGrowthMonth)
 	}
 	// receber adiantado o salário do mês que vem não muda o crescimento
 	marked := false
@@ -203,7 +204,23 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 		t.Fatalf("salário do mês que vem não está nas pendentes: %+v", growth.PendingTransactions)
 	}
 	decode(call(http.MethodGet, "/billings?months=1", "", bob, http.StatusOK), &growth)
-	if growth.MonthlyGrowth != 5000-110+50 {
+	if growth.MonthlyGrowth != 5000-110-100+50 {
 		t.Fatalf("marcar adiantado mudou o crescimento: %d", growth.MonthlyGrowth)
+	}
+
+	// meta de guardar: um dos dois (porcentagem 1..100 ou valor > 0), cada usuário com a sua; vazio remove
+	call(http.MethodPut, "/savings-goal", `{"percent":50,"amount":1000}`, bob, http.StatusBadRequest)
+	call(http.MethodPut, "/savings-goal", `{"percent":0}`, bob, http.StatusBadRequest)
+	call(http.MethodPut, "/savings-goal", `{"percent":101}`, bob, http.StatusBadRequest)
+	call(http.MethodPut, "/savings-goal", `{"percent":50}`, bob, http.StatusOK)
+	call(http.MethodPut, "/savings-goal", `{"amount":150000}`, alice, http.StatusOK)
+	for token, want := range map[string]string{bob: `{"percent":50,"amount":null}`, alice: `{"percent":null,"amount":150000}`} {
+		if got := string(call(http.MethodGet, "/savings-goal", "", token, http.StatusOK)); got != want {
+			t.Fatalf("meta: %s, esperado %s", got, want)
+		}
+	}
+	call(http.MethodPut, "/savings-goal", `{}`, bob, http.StatusOK)
+	if got := string(call(http.MethodGet, "/savings-goal", "", bob, http.StatusOK)); got != `{"percent":null,"amount":null}` {
+		t.Fatalf("meta removida: %s", got)
 	}
 }

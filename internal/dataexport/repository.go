@@ -63,6 +63,13 @@ func (r *Repository) Export(ctx context.Context, userID uuid.UUID) (*Document, e
 			return nil, err
 		}
 	}
+	var savings SavingsGoal
+	err = tx.GetContext(ctx, &savings, `select percent, amount from savings_goals where user_id = $1`, userID)
+	if err == nil {
+		doc.SavingsGoal = &savings
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
 
 	// listas sempre presentes no JSON ([] em vez de null) e filhos dentro do pai
 	nonNil(&doc.Accounts)
@@ -127,6 +134,7 @@ func (r *Repository) Import(ctx context.Context, userID uuid.UUID, doc *Document
 			`delete from receivables where user_id = $1`,
 			`delete from transactions where user_id = $1`,
 			`delete from goals where user_id = $1`,
+			`delete from savings_goals where user_id = $1`,
 		} {
 			if _, err := tx.ExecContext(ctx, query, userID); err != nil {
 				return "", err
@@ -218,6 +226,15 @@ func (r *Repository) Import(ctx context.Context, userID uuid.UUID, doc *Document
 	for _, g := range doc.Goals {
 		if err := exec(`insert into goals (id, user_id, name, target_minor, saved_minor, created_at, updated_at)
 			values ($1, $2, $3, $4, $5, $6, $7)`, uuid.New(), userID, g.Name, g.TargetMinor, g.SavedMinor, g.CreatedAt, g.UpdatedAt); err != nil {
+			return "", err
+		}
+	}
+
+	// meta é configuração, não conta como dado: numa conta vazia que já tinha meta, a do arquivo vale
+	if s := doc.SavingsGoal; s != nil && (s.Percent != nil || s.Amount != nil) {
+		if err := exec(`insert into savings_goals (user_id, percent, amount) values ($1, $2, $3)
+			on conflict (user_id) do update set percent = excluded.percent, amount = excluded.amount, updated_at = now()`,
+			userID, s.Percent, s.Amount); err != nil {
 			return "", err
 		}
 	}

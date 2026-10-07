@@ -24,7 +24,7 @@ func CORS(origins []string) gin.HandlerFunc {
 
 		// preflight: o navegador pergunta antes de mandar Authorization/JSON
 		if c.Request.Method == http.MethodOptions {
-			h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			h.Set("Access-Control-Max-Age", "600")
 			c.AbortWithStatus(http.StatusNoContent)

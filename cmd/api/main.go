@@ -26,6 +26,7 @@ import (
 	"github.com/kgazineu/finApp-back/internal/postgres"
 	"github.com/kgazineu/finApp-back/internal/receivable"
 	"github.com/kgazineu/finApp-back/internal/recurring"
+	"github.com/kgazineu/finApp-back/internal/savingsgoal"
 	"github.com/kgazineu/finApp-back/internal/transaction"
 	"github.com/kgazineu/finApp-back/internal/user"
 	"github.com/kgazineu/finApp-back/migrations"
@@ -68,6 +69,9 @@ func registerBalanceModules(router gin.IRouter, server *api.Server, db *sqlx.DB,
 
 	billings := billing.NewModule(db, accounts.Service(), transactions.Service(), receivables.Service())
 	billings.RegisterRoutes(protected.Group("/billings"))
+
+	// meta de guardar por mês: só exibida na tela de projeção
+	savingsgoal.NewModule(db).RegisterRoutes(protected.Group("/savings-goal"))
 
 	// GET /export e POST /import: backup de todos os dados do usuário
 	dataexport.NewModule(db).RegisterRoutes(protected)

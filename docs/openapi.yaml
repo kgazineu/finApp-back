@@ -39,6 +39,8 @@ tags:
     description: Recuperação de senha por código de 6 dígitos enviado por e-mail
   - name: Data
     description: Exportação e importação de todos os dados do usuário (backup e migração)
+  - name: Savings goal
+    description: Meta de guardar por mês (só exibida na tela de projeção; não entra em cálculo nenhum)
 
 paths:
   /health:
@@ -1253,6 +1255,54 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /savings-goal:
+    get:
+      operationId: getSavingsGoal
+      summary: Meta de guardar por mês
+      description: Os dois campos nulos = sem meta.
+      tags: [Savings goal]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Meta atual
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavingsGoal"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      operationId: saveSavingsGoal
+      summary: Define ou remove a meta de guardar por mês
+      description: >-
+        Porcentagem (1 a 100) do que sobra no mês ou valor fixo por mês, um dos dois. Os dois nulos removem
+        a meta. A API só guarda o número: quanto guardar e quanto sobra para gastar são calculados na tela.
+      tags: [Savings goal]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SavingsGoal"
+      responses:
+        "200":
+          description: Meta salva
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavingsGoal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /export:
     get:
       operationId: exportData
@@ -1718,6 +1768,23 @@ components:
           type: string
           example: Dados de entrada inválidos
 
+    SavingsGoal:
+      type: object
+      required: [percent, amount]
+      properties:
+        percent:
+          type: integer
+          minimum: 1
+          maximum: 100
+          nullable: true
+          description: Porcentagem do que sobra no mês (entradas + recebimentos − despesas)
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+          description: Ou um valor fixo por mês, em centavos
+
     MessageResponse:
       type: object
       required: [message]
@@ -1839,7 +1906,7 @@ components:
 
     ProjectionResponse:
       type: object
-      required: [billingRegistrations, projectedFor, projectedAmount, monthlyGrowth, monthlyGrowthMonth, pendingTransactions, pendingReceivables]
+      required: [billingRegistrations, projectedFor, projectedAmount, monthlyGrowth, monthlyReceivables, monthlyGrowthMonth, pendingTransactions, pendingReceivables]
       properties:
         billingRegistrations:
           type: array
@@ -1857,11 +1924,15 @@ components:
           type: integer
           format: int64
           description: >-
-            Noção de quanto você cresce por mês: no mês que vem, entradas + valores a receber − despesas
-            fixas, pelas regras cadastradas (pagas ou não). Despesas variáveis ficam de fora; não muda com months.
+            Quanto sobra por mês: no mês que vem, entradas + valores a receber − despesas (fixas e variáveis,
+            como na projeção), pelas regras cadastradas (pagas ou não). Não muda com months.
+        monthlyReceivables:
+          type: integer
+          format: int64
+          description: Parcelas de valores a receber que vencem no mês que vem (pagas ou não); entra no crescimento
         monthlyGrowthMonth:
           type: string
-          description: Mês usado no crescimento (AAAA-MM), o mês que vem
+          description: Mês usado no crescimento e no recebimento por mês (AAAA-MM), o mês que vem
           example: "2026-11"
         pendingTransactions:
           type: array
@@ -2264,6 +2335,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ExportGoal"
+        savingsGoal:
+          description: Meta de guardar por mês; null sem meta (e em arquivos antigos)
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/SavingsGoal"
 
     ExportAccount:
       type: object

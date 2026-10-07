@@ -84,29 +84,34 @@ func (s *Service) MonthProjection(ctx context.Context, userID uuid.UUID, now tim
 	return p, nil
 }
 
-// MonthlyGrowth dá a noção de quanto você cresce por mês: no mês que vem, entradas + valores a receber −
-// despesas fixas. Vem das regras cadastradas, pagas ou não (marcar algo adiantado não muda o número);
-// despesas variáveis (compras, parcelamentos) ficam de fora.
-// ponytail: só o mês que vem; média de vários meses se despesas anuais (intervalo > 1) distorcerem
-func (s *Service) MonthlyGrowth(ctx context.Context, userID uuid.UUID, now time.Time) (month time.Time, growth int64, err error) {
-	y, m, _ := now.Date()
-	month = time.Date(y, m+1, 1, 0, 0, 0, 0, time.UTC)
+// Monthly é o retrato de um mês típico: o mês que vem, pelas regras cadastradas, pagas ou não (marcar
+// algo adiantado não muda os números).
+type Monthly struct {
+	Month       time.Time
+	Receivables int64 // parcelas de valores a receber que vencem no mês
+	Growth      int64 // entradas + Receivables − despesas (fixas e variáveis): o que sobra no mês, como na projeção
+}
 
-	occurrences, err := s.transactions.FindByMonth(ctx, userID, month)
+// ponytail: só o mês que vem; média de vários meses se despesas anuais (intervalo > 1) distorcerem
+func (s *Service) MonthlyFigures(ctx context.Context, userID uuid.UUID, now time.Time) (Monthly, error) {
+	y, m, _ := now.Date()
+	f := Monthly{Month: time.Date(y, m+1, 1, 0, 0, 0, 0, time.UTC)}
+
+	occurrences, err := s.transactions.FindByMonth(ctx, userID, f.Month)
 	if err != nil {
-		return month, 0, err
+		return f, err
 	}
 	for _, o := range occurrences {
-		switch {
-		case o.Kind == recurring.KindIncome:
-			growth += o.Amount
-		case o.IsFixed:
-			growth -= o.Amount
+		if o.Kind == recurring.KindIncome {
+			f.Growth += o.Amount
+		} else {
+			f.Growth -= o.Amount
 		}
 	}
 
-	receivables, err := s.receivables.SumDueBetween(ctx, userID, month, month.AddDate(0, 1, -1))
-	return month, growth + receivables, err
+	f.Receivables, err = s.receivables.SumDueBetween(ctx, userID, f.Month, f.Month.AddDate(0, 1, -1))
+	f.Growth += f.Receivables
+	return f, err
 }
 
 func (s *Service) CreateBillingRegistration(ctx context.Context, userID uuid.UUID, input []CreateBillingEntryRequest) (*BillingRegistration, error) {

@@ -28,6 +28,7 @@ Por baixo das duas está a **identidade**: `users` e `sessions`. Todo dado finan
 - [Módulo: Recurring transactions (entradas e despesas planejadas)](#módulo-recurring-transactions-entradas-e-despesas-planejadas)
 - [Módulo: Receivables (valores a receber)](#módulo-receivables-valores-a-receber)
 - [Exportar e importar dados (backup)](#exportar-e-importar-dados-backup)
+- [Meta de guardar (savings goal)](#meta-de-guardar-savings-goal)
 - [Cache (Redis)](#cache-redis)
 - [Fluxos](#fluxos)
 - [Uso ideal](#uso-ideal)
@@ -119,7 +120,7 @@ Ao mudar `docs/openapi.yaml`, regenere o código com `go generate ./internal/api
 ```
 cmd/api/main.go            composição: config → migrations → pool → serviços → rotas
 docs/openapi.yaml          contrato de todas as rotas (é o que o /docs mostra)
-migrations/                SQL versionado (000001..000012)
+migrations/                SQL versionado (000001..000013)
 
 internal/api/              handlers das rotas OpenAPI, middleware de sessão e código gerado:
                            openapi.gen.go (rotas e tipos) e spec.gen.go (spec completo do /docs)
@@ -137,6 +138,7 @@ internal/recurring/        entradas/despesas planejadas    │ controller → se
 internal/receivable/       valores a receber               ┘
 internal/passwordreset/    recuperação de senha por código
 internal/dataexport/       exportação e importação dos dados do usuário
+internal/savingsgoal/      meta de guardar por mês (só exibição)
 internal/cache/            cache das respostas no Redis (middleware dos módulos de saldo)
 ```
 
@@ -145,7 +147,7 @@ São dois estilos convivendo:
 - **Rotas OpenAPI** (`/users`, `/sessions`, `/transactions`, `/goals`, `/dashboard`): o contrato está em `docs/openapi.yaml`, o `oapi-codegen` gera a interface e o registro das rotas, e os handlers em `internal/api` chamam serviços de domínio que não conhecem Gin nem GORM.
 - **Módulos de saldo** (`/accounts`, `/billings`, `/recurring-transactions`, `/receivables`): cada módulo é autocontido (`controller.go`, `service.go`, `repository.go`, `routes.go`) e é montado em `cmd/api/main.go` por `registerBalanceModules`, atrás do middleware `api.Server.RequireSession` (e do cache, quando há `REDIS_URL`). A recuperação de senha (`/password-resets`, pública) e o backup (`/export`, `/import`) seguem o mesmo estilo.
 
-As rotas dos dois estilos estão documentadas no `docs/openapi.yaml`. As registradas à mão usam tags que o gerador de rotas ignora (`exclude-tags` em `internal/api/config.yaml`: Accounts, Billings, Recurring transactions, Receivables, Password resets e Data). O spec completo, com essas tags, é gerado à parte (`internal/api/spec.config.yaml` → `spec.gen.go`) e é o que o `/docs` serve. Ao criar uma rota registrada à mão, documente-a no YAML com uma dessas tags (ou acrescente a tag nova à lista); sem isso, o gerador tentaria registrar a rota de novo.
+As rotas dos dois estilos estão documentadas no `docs/openapi.yaml`. As registradas à mão usam tags que o gerador de rotas ignora (`exclude-tags` em `internal/api/config.yaml`: Accounts, Billings, Recurring transactions, Receivables, Password resets, Data e Savings goal). O spec completo, com essas tags, é gerado à parte (`internal/api/spec.config.yaml` → `spec.gen.go`) e é o que o `/docs` serve. Ao criar uma rota registrada à mão, documente-a no YAML com uma dessas tags (ou acrescente a tag nova à lista); sem isso, o gerador tentaria registrar a rota de novo.
 
 O pool de conexões é um só: `sqlx.NewDb(pool, "pgx")` reaproveita o `*sql.DB` do GORM.
 
@@ -431,7 +433,7 @@ projectedAmount =
 
 - **Parcelas atrasadas entram**: se não foram marcadas como pagas, a API assume que o dinheiro ainda não saiu (ou entrou).
 - Antes de calcular, a API **gera as parcelas** de recurring transactions que ainda não existem até a data limite.
-- **Crescimento por mês** (`monthlyGrowth`, do mês em `monthlyGrowthMonth`): uma noção de quanto você cresce por mês, olhando o **mês que vem**: entradas + valores a receber − **despesas fixas**. Vem das regras cadastradas, pagas ou não (marcar algo adiantado não muda o número); despesas variáveis (compras, parcelamentos) ficam de fora. Não muda com `months`.
+- **Crescimento por mês** (`monthlyGrowth`, do mês em `monthlyGrowthMonth`): quanto sobra por mês, olhando o **mês que vem**: entradas + valores a receber (`monthlyReceivables`, o recebimento do mês) − **despesas fixas e variáveis**, como a projeção conta. Vem das regras cadastradas, pagas ou não (marcar algo adiantado não muda o número). Não muda com `months`. A [meta de guardar](#meta-de-guardar-savings-goal) é aplicada sobre ele, na tela.
 - A projeção parte do **último registro de saldos**. Ao registrar um saldo novo, marque como pagas as parcelas que já saíram da conta; senão elas são descontadas duas vezes.
 
 ### Endpoints
@@ -461,6 +463,7 @@ Resposta do `GET`:
   "projectedFor": "2026-11-01",
   "projectedAmount": 123450,
   "monthlyGrowth": 566600,
+  "monthlyReceivables": 5000,
   "monthlyGrowthMonth": "2026-11",
   "pendingTransactions": [ /* parcelas de recurring transactions consideradas */ ],
   "pendingReceivables": [ /* parcelas de receivables consideradas */ ]
@@ -676,7 +679,7 @@ Para levar os dados de um usuário para outro servidor/banco sem cadastrar tudo 
 
 | Método | Rota | O que faz |
 |---|---|---|
-| `GET` | `/export` | devolve um JSON (`format: "finapp-export"`, `version: 1`) com contas (inclusive arquivadas), registros de saldo com lançamentos, transações planejadas e valores a receber com as parcelas (pagas ou não), lançamentos e metas |
+| `GET` | `/export` | devolve um JSON (`format: "finapp-export"`, `version: 1`) com contas (inclusive arquivadas), registros de saldo com lançamentos, transações planejadas e valores a receber com as parcelas (pagas ou não), lançamentos, metas e a meta de guardar (`savingsGoal`, `null` se não houver) |
 | `POST` | `/import` | recebe esse JSON e recria tudo na conta da sessão; `?replace=true` troca os dados que já existem |
 
 - Conta **sem dados** importa direto.
@@ -685,6 +688,21 @@ Para levar os dados de um usuário para outro servidor/banco sem cadastrar tudo 
 - O `GET /export` responde `Cache-Control: no-store`: o arquivo nunca fica em cache.
 - Os ids não viajam: cada registro ganha id novo e as ligações (conta do lançamento, pai da parcela) são refeitas. Datas de criação, arquivamento e pagamento são mantidas, então a geração de parcelas e a projeção continuam iguais.
 - No web, fica em **Perfil → Seus dados**. Para migrar o banco inteiro (todos os usuários) de uma vez, `pg_dump`/`pg_restore` continua sendo o caminho.
+
+---
+
+## Meta de guardar (savings goal)
+
+Quanto o usuário quer guardar por mês, para a tela de projeção mostrar quanto sobra para gastar. A API só guarda o número: **nenhum cálculo usa a meta** (a projeção não muda).
+
+| Método | Rota | O que faz |
+|---|---|---|
+| `GET` | `/savings-goal` | `{"percent": 50, "amount": null}`; os dois nulos = sem meta |
+| `PUT` | `/savings-goal` | define a meta; os dois nulos (ou `{}`) removem |
+
+- Um dos dois: `percent` (1 a 100) é a porcentagem do que **sobra no mês** (o crescimento por mês), ou `amount` é um valor fixo por mês, em centavos. Os dois juntos → `400`.
+- Na tela: meta do mês = `percent` × crescimento por mês (ou `amount`), e para gastar = crescimento por mês − meta.
+- Fica na tabela `savings_goals` (uma linha por usuário) e vai junto na exportação; numa importação ela é configuração, não conta como dado (a do arquivo substitui a atual).
 
 ---
 
@@ -785,6 +803,7 @@ transactions      id (uuid), user_id, kind, amount_minor, description,         �
                   category, payment_method, installments, necessity_level,     │
                   occurred_at                                                  │
 goals             id (uuid), user_id, name, target_minor, saved_minor  ◄───────┤
+savings_goals     user_id (pk), percent (1 a 100) ou amount (> 0)      ◄───────┤
                                                                                │
 accounts ──────────────────┐ (sem cascade)                             ◄───────┤
   id, user_id, name, kind, │                                                   │
@@ -824,10 +843,11 @@ Regras garantidas pelo banco:
 | Histórico não some | FKs de parcelas e lançamentos de saldo sem `ON DELETE CASCADE` |
 | Regras de lançamento (tipo, valor, parcelas, forma de pagamento, necessidade) | `CHECK`s em `transactions` |
 | Alvo > 0 e guardado ≥ 0 | `CHECK`s em `goals` |
+| Meta de guardar: porcentagem ou valor, nunca os dois | `savings_goals_one_kind` |
 
 `paid_at` nulo = não pago/recebido. `archived_at` nulo = ativo.
 
-Migrations: `000001`–`000005` (users, transactions, sessions, goals), `000006`–`000009` (accounts, billings, recurring transactions, receivables), `000010` (password resets), `000011` (modo do valor dos receivables) e `000012` (primeiro registro de saldo sem delta).
+Migrations: `000001`–`000005` (users, transactions, sessions, goals), `000006`–`000009` (accounts, billings, recurring transactions, receivables), `000010` (password resets), `000011` (modo do valor dos receivables), `000012` (primeiro registro de saldo sem delta) e `000013` (meta de guardar).
 
 ---
 

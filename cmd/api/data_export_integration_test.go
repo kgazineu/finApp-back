@@ -87,6 +87,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	call(http.MethodPatch, fmt.Sprintf("/recurring-transactions/installments/%d", projection.PendingTransactions[0].ID), `{"paid":true}`, alice, http.StatusOK)
 	call(http.MethodPatch, fmt.Sprintf("/receivables/installments/%d", projection.PendingReceivables[0].ID), `{"paid":true}`, alice, http.StatusOK)
 	call(http.MethodPost, "/transactions", `{"kind":"expense","amountMinor":1299,"necessityLevel":3,"description":"Mercado","category":"Alimentação","paymentMethod":"pix","installments":1,"occurredAt":"2026-09-30T12:00:00Z"}`, alice, http.StatusCreated)
+	call(http.MethodPut, "/savings-goal", `{"percent":30}`, alice, http.StatusOK) // vai junto no arquivo
 	var reserve struct{ ID string }
 	decode(call(http.MethodPost, "/goals", `{"name":"Reserva","targetMinor":100000}`, alice, http.StatusCreated), &reserve)
 	call(http.MethodPost, "/goals/"+reserve.ID+"/allocations", `{"direction":"deposit","amountMinor":5000}`, alice, http.StatusOK)

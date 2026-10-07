@@ -107,6 +107,7 @@ func TestOpenAPISpec(t *testing.T) {
 		"/password-resets/verify":        {"post"},
 		"/password-resets/confirm":       {"post"},
 		"/export":                        {"get"},
+		"/savings-goal":                  {"get", "put"},
 		"/import":                        {"post"},
 	} {
 		var operations map[string]json.RawMessage
@@ -156,5 +157,21 @@ func TestSwaggerDocs(t *testing.T) {
 
 	if !strings.Contains(response.Body.String(), "FinApp API") {
 		t.Error("a página da documentação não contém o título da API")
+	}
+}
+
+// o front em outro endereço (túnel) só consegue chamar métodos que o preflight libera
+func TestCORSPreflightAllowsEveryMethodTheAPIUses(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := newRouter(api.NewServer(nil), "http://front.test")
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		req := httptest.NewRequest(http.MethodOptions, "/savings-goal", nil)
+		req.Header.Set("Origin", "http://front.test")
+		req.Header.Set("Access-Control-Request-Method", method)
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if allowed := res.Header().Get("Access-Control-Allow-Methods"); res.Code != http.StatusNoContent || !strings.Contains(allowed, method) {
+			t.Fatalf("preflight de %s: HTTP %d, métodos liberados %q", method, res.Code, allowed)
+		}
 	}
 }
