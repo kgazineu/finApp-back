@@ -84,6 +84,31 @@ func (s *Service) MonthProjection(ctx context.Context, userID uuid.UUID, now tim
 	return p, nil
 }
 
+// MonthlyGrowth dá a noção de quanto você cresce por mês: no mês que vem, entradas + valores a receber −
+// despesas fixas. Vem das regras cadastradas, pagas ou não (marcar algo adiantado não muda o número);
+// despesas variáveis (compras, parcelamentos) ficam de fora.
+// ponytail: só o mês que vem; média de vários meses se despesas anuais (intervalo > 1) distorcerem
+func (s *Service) MonthlyGrowth(ctx context.Context, userID uuid.UUID, now time.Time) (month time.Time, growth int64, err error) {
+	y, m, _ := now.Date()
+	month = time.Date(y, m+1, 1, 0, 0, 0, 0, time.UTC)
+
+	occurrences, err := s.transactions.FindByMonth(ctx, userID, month)
+	if err != nil {
+		return month, 0, err
+	}
+	for _, o := range occurrences {
+		switch {
+		case o.Kind == recurring.KindIncome:
+			growth += o.Amount
+		case o.IsFixed:
+			growth -= o.Amount
+		}
+	}
+
+	receivables, err := s.receivables.SumDueBetween(ctx, userID, month, month.AddDate(0, 1, -1))
+	return month, growth + receivables, err
+}
+
 func (s *Service) CreateBillingRegistration(ctx context.Context, userID uuid.UUID, input []CreateBillingEntryRequest) (*BillingRegistration, error) {
 	accounts, err := s.accounts.FindActive(ctx, userID)
 	if err != nil {

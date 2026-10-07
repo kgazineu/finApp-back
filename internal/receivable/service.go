@@ -59,6 +59,10 @@ func (s *Service) FindPendingUntil(ctx context.Context, userID uuid.UUID, until 
 	return s.repo.FindPendingUntil(ctx, userID, until)
 }
 
+func (s *Service) SumDueBetween(ctx context.Context, userID uuid.UUID, from, to time.Time) (int64, error) {
+	return s.repo.SumDueBetween(ctx, userID, from, to)
+}
+
 func (s *Service) FindPaidInstallments(ctx context.Context, userID uuid.UUID, since time.Time) ([]*PendingInstallment, error) {
 	return s.repo.FindPaidInstallments(ctx, userID, since)
 }

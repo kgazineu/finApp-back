@@ -41,6 +41,8 @@ type ProjectionResponse struct {
 	BillingRegistrations []BillingResponse                       `json:"billingRegistrations"`
 	ProjectedFor         string                                  `json:"projectedFor"`
 	ProjectedAmount      int64                                   `json:"projectedAmount"`
+	MonthlyGrowth        int64                                   `json:"monthlyGrowth"`
+	MonthlyGrowthMonth   string                                  `json:"monthlyGrowthMonth"`
 	PendingReceivables   []receivable.PendingInstallmentResponse `json:"pendingReceivables"`
 	PendingTransactions  []recurring.PendingInstallmentResponse  `json:"pendingTransactions"`
 }
@@ -102,10 +104,18 @@ func (ctrl *Controller) NextMonthProjectionController(c *gin.Context) {
 		return
 	}
 
+	growthMonth, growth, err := ctrl.service.MonthlyGrowth(ctx, userID, now)
+	if err != nil {
+		api.InternalError(c, err)
+		return
+	}
+
 	res := ProjectionResponse{
 		BillingRegistrations: make([]BillingResponse, len(billings)),
 		ProjectedFor:         projection.Date.Format(time.DateOnly),
 		ProjectedAmount:      projection.Total,
+		MonthlyGrowth:        growth,
+		MonthlyGrowthMonth:   growthMonth.Format("2006-01"),
 		PendingReceivables:   make([]receivable.PendingInstallmentResponse, len(projection.Receivables)),
 		PendingTransactions:  make([]recurring.PendingInstallmentResponse, len(projection.Transactions)),
 	}

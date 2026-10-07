@@ -1839,7 +1839,7 @@ components:
 
     ProjectionResponse:
       type: object
-      required: [billingRegistrations, projectedFor, projectedAmount, pendingTransactions, pendingReceivables]
+      required: [billingRegistrations, projectedFor, projectedAmount, monthlyGrowth, monthlyGrowthMonth, pendingTransactions, pendingReceivables]
       properties:
         billingRegistrations:
           type: array
@@ -1853,6 +1853,16 @@ components:
         projectedAmount:
           type: integer
           format: int64
+        monthlyGrowth:
+          type: integer
+          format: int64
+          description: >-
+            Noção de quanto você cresce por mês: no mês que vem, entradas + valores a receber − despesas
+            fixas, pelas regras cadastradas (pagas ou não). Despesas variáveis ficam de fora; não muda com months.
+        monthlyGrowthMonth:
+          type: string
+          description: Mês usado no crescimento (AAAA-MM), o mês que vem
+          example: "2026-11"
         pendingTransactions:
           type: array
           items:

@@ -166,4 +166,44 @@ func TestBalanceModulesEndToEnd(t *testing.T) {
 	if pt := past.PendingTransactions; len(pt) != 4 || pt[0].Number != 1 || !pt[0].Overdue || !pt[1].Overdue {
 		t.Fatalf("parcelas desde o início, atrasadas: %+v", pt)
 	}
+
+	// crescimento por mês: o mês que vem pelas regras, pago ou não. Entradas + a receber − despesas fixas;
+	// o seguro (variável) fica de fora
+	nextMonth := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC)
+	thisMonth := now.Format("2006-01")
+	call(http.MethodPost, "/recurring-transactions", fmt.Sprintf(
+		`{"description":"Salário","kind":"income","isFixed":true,"amount":5000,"startMonth":%q,"dayOfMonth":5}`, thisMonth), bob, http.StatusCreated)
+	call(http.MethodPost, "/recurring-transactions", fmt.Sprintf(
+		`{"description":"Streaming","kind":"expense","isFixed":true,"amount":110,"startMonth":%q}`, thisMonth), bob, http.StatusCreated)
+	call(http.MethodPost, "/receivables", fmt.Sprintf(
+		`{"kind":"loan","debtor":"Pai","description":"Assinatura","amount":50,"amountMode":"installment","installments":2,"firstDueDate":%q}`,
+		nextMonth.AddDate(0, 0, 9).Format(time.DateOnly)), bob, http.StatusCreated)
+	var growth struct {
+		MonthlyGrowth       int64
+		MonthlyGrowthMonth  string
+		PendingTransactions []struct {
+			ID          int64
+			Description string
+			DueDate     string
+		}
+	}
+	decode(call(http.MethodGet, "/billings?months=1", "", bob, http.StatusOK), &growth)
+	if growth.MonthlyGrowth != 5000-110+50 || growth.MonthlyGrowthMonth != nextMonth.Format("2006-01") {
+		t.Fatalf("crescimento por mês: %d em %s", growth.MonthlyGrowth, growth.MonthlyGrowthMonth)
+	}
+	// receber adiantado o salário do mês que vem não muda o crescimento
+	marked := false
+	for _, i := range growth.PendingTransactions {
+		if i.Description == "Salário" && i.DueDate == nextMonth.AddDate(0, 0, 4).Format(time.DateOnly) {
+			call(http.MethodPatch, fmt.Sprintf("/recurring-transactions/installments/%d", i.ID), `{"paid":true}`, bob, http.StatusOK)
+			marked = true
+		}
+	}
+	if !marked {
+		t.Fatalf("salário do mês que vem não está nas pendentes: %+v", growth.PendingTransactions)
+	}
+	decode(call(http.MethodGet, "/billings?months=1", "", bob, http.StatusOK), &growth)
+	if growth.MonthlyGrowth != 5000-110+50 {
+		t.Fatalf("marcar adiantado mudou o crescimento: %d", growth.MonthlyGrowth)
+	}
 }

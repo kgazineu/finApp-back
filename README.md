@@ -431,6 +431,7 @@ projectedAmount =
 
 - **Parcelas atrasadas entram**: se não foram marcadas como pagas, a API assume que o dinheiro ainda não saiu (ou entrou).
 - Antes de calcular, a API **gera as parcelas** de recurring transactions que ainda não existem até a data limite.
+- **Crescimento por mês** (`monthlyGrowth`, do mês em `monthlyGrowthMonth`): uma noção de quanto você cresce por mês, olhando o **mês que vem**: entradas + valores a receber − **despesas fixas**. Vem das regras cadastradas, pagas ou não (marcar algo adiantado não muda o número); despesas variáveis (compras, parcelamentos) ficam de fora. Não muda com `months`.
 - A projeção parte do **último registro de saldos**. Ao registrar um saldo novo, marque como pagas as parcelas que já saíram da conta; senão elas são descontadas duas vezes.
 
 ### Endpoints
@@ -459,6 +460,8 @@ Resposta do `GET`:
   "billingRegistrations": [ /* do mais antigo para o mais novo */ ],
   "projectedFor": "2026-11-01",
   "projectedAmount": 123450,
+  "monthlyGrowth": 566600,
+  "monthlyGrowthMonth": "2026-11",
   "pendingTransactions": [ /* parcelas de recurring transactions consideradas */ ],
   "pendingReceivables": [ /* parcelas de receivables consideradas */ ]
 }
